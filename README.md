@@ -1,5 +1,5 @@
 # AI-Powered Website Testing System
-< img src="https://www.thebluediamondgallery.com/handwriting/images/testing.jpg" width="100">
+<img src="https://www.thebluediamondgallery.com/handwriting/images/testing.jpg" width="100">
 A modular, scalable Python framework for automated website analysis using AI.
 
 ## Project Structure
