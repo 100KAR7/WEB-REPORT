@@ -1,0 +1,38 @@
+# pipeline/sites.yaml
+# --------------------
+# Configuration file for the AI Web Tester automated runner.
+# Pass to the runner with:  --config pipeline/sites.yaml
+
+# ── Global settings ────────────────────────────────────────────────────────
+output_dir:   output          # where reports are written
+log_dir:      logs            # where .log files are written
+log_level:    INFO            # DEBUG | INFO | WARNING | ERROR
+headless:     true            # set false to watch the browser (debugging only)
+notify_email: ""              # set an email address to get run summaries
+
+# ── Sites to test ──────────────────────────────────────────────────────────
+sites:
+
+  - url:       https://example.com
+    label:     "Example Site"
+    max_pages: 20
+    run_ui:    true
+    run_seo:   true
+    retries:   2
+    enabled:   true
+
+  - url:       https://another-site.com
+    label:     "Another Site"
+    max_pages: 10
+    run_ui:    false    # SEO-only audit (no Playwright required)
+    run_seo:   true
+    retries:   3
+    enabled:   true
+
+  - url:       https://staging.example.com
+    label:     "Staging"
+    max_pages: 5
+    run_ui:    true
+    run_seo:   true
+    retries:   1
+    enabled:   false    # disabled — uncomment `enabled: true` to include
