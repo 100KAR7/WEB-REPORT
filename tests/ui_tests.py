@@ -168,8 +168,6 @@ class UITester:
             try:
                 context = browser.new_context(
                     viewport={"width": self.viewport_width, "height": self.viewport_height},
-                    # Record network responses so we can capture the HTTP status code
-                    # of the *navigated* page (not all sub-resources).
                     ignore_https_errors=True,
                 )
                 page = context.new_page()
@@ -187,8 +185,8 @@ class UITester:
                 result.load_time_ms = round((time.perf_counter() - t0) * 1000, 2)
 
                 # ── Collect page metadata ─────────────────────────────────────
-                result.title      = page.title()
-                result.final_url  = page.url
+                result.title       = page.title()
+                result.final_url   = page.url
                 result.status_code = response.status if response else 0
 
                 # Real rendered dimensions (after JS has run)
@@ -279,16 +277,17 @@ class UITester:
         """
         Save a full-page screenshot and return its file path.
 
-        File name is derived from the URL path so it's human-readable:
-          https://example.com/about  →  example_com_about_20240315_143022.png
-        """
-        slug      = _url_to_slug(url)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename  = f"{slug}_{timestamp}.png"
-        path      = self.screenshot_dir / filename
+        Screenshots are saved to the 'screenshots/' folder with a
+        timestamp filename: screenshots/20240315_143022.png
 
-        page.screenshot(path=str(path), full_page=True)
-        return str(path)
+        Also prints the saved path to the console for easy verification.
+        """
+        os.makedirs("screenshots", exist_ok=True)
+        filename = f"screenshots/{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
+        page.screenshot(path=filename, full_page=True)
+        print(f"Saved screenshot at: {filename}")
+        return filename
 
 
 # ---------------------------------------------------------------------------
