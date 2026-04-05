@@ -12,6 +12,7 @@ from tests.link_checker import LinkChecker
 from tests.performance_checker import PerformanceChecker
 from seo.seo_checker import SEOChecker
 from ai_analysis.ai_analyzer import AIAnalyzer
+from reports.report_context import build_report_context
 from reports.report_generator import ReportGenerator
 
 
@@ -47,8 +48,11 @@ class PipelineRunner:
         # ── Step 4: SEO ────────────────────────────────────────────────
         logger.info("Step 4/5 — Running SEO audit...")
         seo = []
+        sitewide_findings = []
         if settings.run_seo:
-            seo = SEOChecker().check(pages)
+            seo_report = SEOChecker().check(pages)
+            seo = seo_report["pages"]
+            sitewide_findings = seo_report["sitewide_findings"]
 
         # ── Step 5: AI Analysis ────────────────────────────────────────
         logger.info("Step 5/5 — Running AI analysis...")
@@ -60,12 +64,26 @@ class PipelineRunner:
 
         # ── Report ─────────────────────────────────────────────────────
         logger.info("Generating report...")
+        report_context = build_report_context(
+            target_url=self.url,
+            pages=pages,
+            performance=performance,
+            broken_links=broken_links,
+            seo=seo,
+            ai_insights=ai_insights,
+            sitewide_findings=sitewide_findings,
+        )
         report_path = ReportGenerator().generate(
             target_url=self.url,
             performance=performance,
             broken_links=broken_links,
             seo=seo,
             ai_insights=ai_insights,
+            summary=report_context["summary"],
+            seo_summary=report_context["seo_summary"],
+            page_health=report_context["page_health"],
+            sitewide_findings=report_context["sitewide_findings"],
+            recommendations=report_context["recommendations"],
         )
 
         logger.info(f"✅ Done! Report saved to: {report_path}")

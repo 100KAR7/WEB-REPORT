@@ -20,20 +20,34 @@ class LinkChecker:
     def check(self, pages: list[PageData]) -> list[dict]:
         """
         Returns a list of broken link records:
-        [{"source_url": ..., "broken_url": ..., "status_code": ...}]
+        [{
+            "source_url": ...,
+            "source_urls": [...],
+            "broken_url": ...,
+            "status_code": ...,
+            "occurrences": ...
+        }]
         """
-        all_links: dict[str, str] = {}  # link -> found-on page
+        all_links: dict[str, set[str]] = {}  # link -> found-on pages
         for page in pages:
             for link in page.links:
-                if link not in all_links:
-                    all_links[link] = page.url
+                all_links.setdefault(link, set()).add(page.url)
 
         broken = []
-        for link, source in all_links.items():
+        for link, sources in all_links.items():
             status = self._get_status(link)
             if status not in range(200, 400):
-                broken.append({"source_url": source, "broken_url": link, "status_code": status})
-                logger.warning(f"Broken link [{status}]: {link} (found on {source})")
+                source_urls = sorted(sources)
+                broken.append({
+                    "source_url": source_urls[0],
+                    "source_urls": source_urls,
+                    "broken_url": link,
+                    "status_code": status,
+                    "occurrences": len(source_urls),
+                })
+                logger.warning(
+                    f"Broken link [{status}]: {link} (found on {', '.join(source_urls)})"
+                )
 
         logger.info(f"Link check complete. {len(broken)} broken links found.")
         return broken

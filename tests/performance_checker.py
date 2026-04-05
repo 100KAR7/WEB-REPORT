@@ -25,7 +25,8 @@ class PerformanceChecker:
                 "url": page.url,
                 "load_time_ms": page.load_time_ms,
                 "is_slow": is_slow,
-                "score": score,
+                "score": score["label"],
+                "score_value": score["value"],
             })
             if is_slow:
                 logger.warning(f"Slow page ({page.load_time_ms:.0f}ms): {page.url}")
@@ -34,11 +35,11 @@ class PerformanceChecker:
         logger.info(f"Performance check complete. Avg load time: {avg:.0f}ms")
         return results
 
-    def _score(self, load_ms: float) -> str:
+    def _score(self, load_ms: float) -> dict:
         if load_ms < 500:
-            return "Excellent"
+            return {"label": "Excellent", "value": 100}
         if load_ms < 1000:
-            return "Good"
+            return {"label": "Good", "value": 84}
         if load_ms < 2000:
-            return "Fair"
-        return "Poor"
+            return {"label": "Fair", "value": 68}
+        return {"label": "Poor", "value": 42}

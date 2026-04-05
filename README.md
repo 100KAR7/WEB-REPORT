@@ -2,6 +2,14 @@
 <img src="https://www.thebluediamondgallery.com/handwriting/images/testing.jpg" width="100">
 A modular, scalable Python framework for automated website analysis using AI.
 
+## Highlights
+
+- Crawl a site and measure page response times
+- Detect broken links with source-page tracking
+- Audit on-page SEO issues and sitewide duplicate metadata
+- Generate a richer HTML and JSON report with health scoring, recommendations, and page rankings
+- Optionally add AI-written content and UX insights
+
 ## Project Structure
 
 ```
@@ -45,11 +53,10 @@ playwright install
 ```
 ### 5️⃣ Setup Environment Variables
 ```bash
-export OPENAI_API_KEY="your_api_key_here"   # Linux / Mac
-set OPENAI_API_KEY=your_api_key_here        # Windows
+export ANTHROPIC_API_KEY="your_api_key_here"   # Linux / Mac
+set ANTHROPIC_API_KEY=your_api_key_here        # Windows
 ```
 ### 6️⃣ Run the Tester
 ```bash
 python main.py --url https://example.com
 ```
-## THE PROJECT WILL NOT SUPPORT THE LLM FEATURE RIGHT NOW AND THE HTML REPORT WILL NOT OPEN RIGHT NOW 
