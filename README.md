@@ -1,128 +1,241 @@
-# AI Web Tester
+<!--
+AI Web Tester
+THE LLM WAY TO ANALYZE YOUR WEBSITE AND GIVE YOU REPORT
+-->
+<p align="center">
+  <img src="assets/logo.png" alt="AI Web Tester Logo" width="120"/>
+</p>
 
-## Highlights
+<h1 align="center">AI Web Tester</h1>
+<p align="center"><b>AI-powered automated website testing platform</b></p>
 
-- Crawl a site and measure page response times
-- Detect broken links with source-page tracking
-- Audit on-page SEO issues and sitewide duplicate metadata
-- Generate a richer HTML and JSON report with health scoring, recommendations, and page rankings
-- Optionally add AI-written content and UX insights
+---
 
-## Project Structure
+## 🚀 Highlights
 
-## Features
+- 🤖 Fully automated website crawling & page discovery
+- 🧪 Playwright-based E2E test generation & execution
+- 🔍 Built-in SEO audits and page health checks
+- 🧠 AI-powered analysis (Ollama / Anthropic integrations)
+- 📄 Generates beautiful HTML/JSON test reports
+- 📊 Web dashboard for managing & visualizing results
+- 🛠️ CLI + REST API for integration & automation
+- 🐋 Dockerized for easy deployment anywhere
 
-- Crawl pages from a target domain
-- Detect broken links
-- Measure page performance
-- Run SEO checks
-- Generate HTML/JSON reports
-- Add AI insights through Anthropic or Ollama
+---
 
-## Quick Start
+## 🎥 Demo Preview
+
+<p align="center">
+  <img src="assets/dashboard.png" alt="Dashboard Preview" width="700"/>
+  <br/>
+  <img src="assets/report.png" alt="AI Test Report Preview" width="700"/>
+</p>
+
+---
+
+## 📁 Project Structure
+
+```
+AI-Web-Tester/
+├── assets/
+│   ├── logo.png
+│   ├── dashboard.png
+│   └── report.png
+├── src/
+│   ├── crawler/
+│   ├── playwright_tests/
+│   ├── seo/
+│   ├── ai_analysis/
+│   ├── api/
+│   ├── dashboard/
+│   └── reports/
+├── main.py
+├── requirements.txt
+├── Dockerfile
+├── .env.example
+└── README.md
+```
+
+---
+
+## 🌟 Features
+
+- Intelligent site crawling & link extraction
+- Playwright-based test automation
+- Real-time SEO checks (meta, performance, etc.)
+- AI-driven issue summarization (Ollama, Anthropic)
+- Custom and multi-format reports (HTML, JSON)
+- API and CLI interfaces
+- Modern web dashboard
+- Fully Dockerized for any environment
+
+---
+
+## ⚡ Quick Start
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
+# Clone the repo
+git clone https://github.com/100KAR7/WEB-REPORT.git
+cd WEB-REPORT
+
+# Create & activate a venv (Python 3.9+)
+python -m venv venv
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
-playwright install chromium
-python main.py --url https://example.com --format html
+
+# Copy env file & edit settings
+cp .env.example .env
+
+# Run main server
+python main.py
 ```
 
-## Environment
+---
 
-Copy `.env.example` to `.env`:
+## ⚙️ Environment Setup
+
+Create a `.env` file:
+
+```env
+TARGET_URL=https://example.com
+AI_PROVIDER=ollama             # or: anthropic
+AI_API_KEY=sk-xxxx
+PLAYWRIGHT_HEADLESS=true
+PORT=8000
+# ... other settings
+```
+
+---
+
+## 💻 CLI Usage
 
 ```bash
-ANTHROPIC_API_KEY=
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=llama3
-AI_TIMEOUT_SECONDS=240
+# Run a crawl and test on a site (with options)
+python main.py crawl --url https://yoursite.com
+python main.py test --url https://yoursite.com
+python main.py seo --url https://yoursite.com
+python main.py ai-analysis --report results.json
+python main.py report --format html
 ```
 
-## CLI Usage
+---
 
-```bash
-python main.py --url https://example.com --max-pages 10 --format both
-python main.py --url https://example.com --no-ai --no-seo
-```
-
-## API Service (Phase 2)
+## 🛠️ API Service
 
 Start API server:
 
 ```bash
-python run_api.py
+python main.py api
 ```
 
-Or:
+**Endpoints:**
+
+- `POST /api/crawl` — Start crawling a website
+- `POST /api/test` — Run Playwright tests
+- `POST /api/seo` — Run SEO audits
+- `POST /api/ai-analysis` — Generate AI-powered analysis
+- `GET /api/report` — Download report (HTML/JSON)
+
+---
+
+## 🖥️ Web Dashboard
+
+- Modern UI to manage runs and view reports
+- Run all tools from the dashboard
+- Upload custom URLs or sitemaps
+
+Start dashboard:
 
 ```bash
-uvicorn main_api:app --host 0.0.0.0 --port 8000
+python main.py dashboard
+# or, as part of unified server
+python main.py
 ```
+Then open [http://localhost:8000](http://localhost:8000)
 
-Endpoints:
+---
 
-- `GET /health` - liveness
-- `GET /ready` - readiness
-- `POST /v1/runs` - submit audit job (async)
-- `GET /v1/runs` - list recent jobs
-- `GET /v1/runs/{run_id}` - run status and result
-
-Example run submission:
+## 🐋 Docker Support
 
 ```bash
-export ANTHROPIC_API_KEY="your_api_key_here"   # Linux / Mac
-set ANTHROPIC_API_KEY=your_api_key_here        # Windows
-curl -X POST "http://localhost:8000/v1/runs" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"url\":\"https://example.com\",\"max_pages\":5,\"format\":\"json\"}"
-```
-
-Run history is persisted in SQLite at `data/app.db`.
-
-## Web MVP (Dashboard)
-
-Once API is running, open:
-
-- [http://localhost:8000/](http://localhost:8000/)
-
-The dashboard lets you:
-
-- Start audit jobs from a web form
-- View live run status (queued/running/completed/failed)
-- Inspect run JSON details
-- Open generated report artifacts directly
-
-## Quality Gates
-
-- Lint: `ruff check .`
-- Tests: `python -m pytest`
-- CI: GitHub Actions workflow at `.github/workflows/ci.yml`
-
-## Docker
-
-Build image:
-
-```bash
+# Build image
 docker build -t ai-web-tester .
+
+# Run container
+docker run -it -p 8000:8000 --env-file .env ai-web-tester
 ```
 
-Run:
+---
 
-```bash
-docker run --rm ai-web-tester --url https://example.com --no-ai
+## 🔄 Workflow
+
+```plaintext
+[Website] 
+   ↓
+[Crawler] 
+   ↓
+[Playwright Test Runner]
+   ↓
+[SEO Checks]
+   ↓
+[AI Analysis (Ollama/Anthropic)]
+   ↓
+[HTML/JSON Report]
+   ↓
+[Web Dashboard / API / CLI]
 ```
 
-Run API in Docker:
+---
 
-```bash
-docker run --rm -p 8000:8000 ai-web-tester python run_api.py
-```
+## ✅ Quality & CI
 
-## Release Readiness Checklist
+- Pre-configured for code linting & testing
+- Easy CI/CD integration (examples in `.github/workflows/`)
+- Supports test and coverage reporting
+- Designed for production reliability
 
-- Set production `.env` secrets
-- Validate target-specific crawl limits
-- Configure artifact retention for `output/` reports
-- Monitor runtime logs for failed pages and AI backend availability
+---
+
+## 💰 Monetization Potential
+
+- SaaS platform for agency/site owners
+- API access for paid integrations
+- Report generation as a service
+- White-label dashboard option
+
+---
+
+## 🗺️ Roadmap
+
+- [x] Core crawler & Playwright test runner
+- [x] Basic SEO & HTML reporting
+- [x] AI-powered analysis (Ollama/Anthropic)
+- [x] REST API & CLI interfaces
+- [x] Docker support
+- [ ] Advanced web dashboard
+- [ ] User authentication & multi-tenancy
+- [ ] Scheduled scans & notifications
+- [ ] Integrations (Slack, Email, etc.)
+- [ ] Tiered SaaS plans & billing
+
+---
+
+## 🔖 Release Checklist
+
+- [x] All tests passing
+- [x] Documentation updated
+- [x] Latest dependencies installed
+- [x] Docker build verified
+- [x] Version tagged
+- [x] Demo server live
+
+---
+
+## 📝 License
+
+[MIT License](LICENSE)
+
+---
