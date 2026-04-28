@@ -36,3 +36,9 @@ sites:
     run_seo:   true
     retries:   1
     enabled:   false    # disabled — uncomment `enabled: true` to include
+
+# ── NEW settings added for Ollama + PDF ────────────────────────────────────
+ollama_model: llama3       # or mistral, phi3, gemma — run `ollama list` to see yours
+ollama_url:   http://localhost:11434
+run_llm:      false        # set true to enable Ollama LLM for all sites
+run_pdf:      false        # set true to generate PDF reports for all sites

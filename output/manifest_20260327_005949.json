@@ -1,0 +1,24 @@
+{
+  "run_at": "2026-03-27T00:59:49",
+  "total_s": 4.92,
+  "dry_run": false,
+  "llm_enabled": false,
+  "pdf_enabled": false,
+  "ollama_model": "llama3",
+  "sites_total": 1,
+  "sites_passed": 0,
+  "sites_failed": 1,
+  "sites": [
+    {
+      "url": "https://example.com",
+      "label": "example.com",
+      "success": false,
+      "pages_found": 0,
+      "report_paths": {},
+      "error": "RuntimeError: No pages could be fetched from https://example.com. Check the URL and network access.",
+      "duration_s": 0.0,
+      "attempts": 2,
+      "started_at": "2026-03-27T00:59:44"
+    }
+  ]
+}

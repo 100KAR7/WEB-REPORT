@@ -1,0 +1,15 @@
+{
+  "target_url": "https://books.toscrape.com",
+  "generated_at": "2026-03-27 01:36:27",
+  "performance": [
+    {
+      "url": "https://books.toscrape.com",
+      "load_time_ms": 0.0,
+      "is_slow": false,
+      "score": "Excellent"
+    }
+  ],
+  "broken_links": [],
+  "seo": [],
+  "ai_insights": []
+}

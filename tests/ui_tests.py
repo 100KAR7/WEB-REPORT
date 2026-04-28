@@ -21,7 +21,6 @@ Quick test without the rest of the project:
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -153,7 +152,7 @@ class UITester:
         # Import here so the rest of the project still loads even if
         # Playwright is not installed yet.
         try:
-            from playwright.sync_api import sync_playwright, ConsoleMessage, Page
+            from playwright.sync_api import sync_playwright
         except ImportError:
             raise ImportError(
                 "Playwright is not installed.\n"
@@ -164,6 +163,8 @@ class UITester:
 
         with sync_playwright() as pw:
             browser = self._launch_browser(pw)
+            context = None
+            page = None
 
             try:
                 context = browser.new_context(
@@ -206,7 +207,8 @@ class UITester:
                 result.success = False
                 # Still attempt a screenshot if the page partially loaded
                 try:
-                    result.screenshot_path = self._take_screenshot(page, url)
+                    if page is not None:
+                        result.screenshot_path = self._take_screenshot(page, url)
                 except Exception:
                     pass
 
@@ -282,12 +284,14 @@ class UITester:
 
         Also prints the saved path to the console for easy verification.
         """
-        os.makedirs("screenshots", exist_ok=True)
-        filename = f"screenshots/{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filename = (
+            f"{_url_to_slug(url)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        )
+        path = self.screenshot_dir / filename
 
-        page.screenshot(path=filename, full_page=True)
-        print(f"Saved screenshot at: {filename}")
-        return filename
+        page.screenshot(path=str(path), full_page=True)
+        print(f"Saved screenshot at: {path}")
+        return str(path)
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +360,7 @@ if __name__ == "__main__":
     target = sys.argv[1]
     outdir = sys.argv[2] if len(sys.argv) > 2 else "output/screenshots"
 
-    print(f"\n🎭  Playwright UI Test")
+    print("\n🎭  Playwright UI Test")
     print(f"    URL : {target}")
     print(f"    Dest: {outdir}\n")
 

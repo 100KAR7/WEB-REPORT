@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-web-tester"
+version = "0.1.0"
+description = "AI-assisted website auditing pipeline with crawl, SEO, performance, and reporting modules."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "requests==2.31.0",
+  "beautifulsoup4==4.12.2",
+  "playwright==1.40.0",
+  "anthropic==0.20.0",
+  "jinja2==3.1.2",
+  "pydantic==2.5.0",
+  "python-dotenv==1.0.0",
+  "rich==13.7.0",
+  "aiohttp==3.9.1",
+  "PyYAML==6.0.2",
+  "reportlab==4.2.5",
+  "chardet==5.2.0",
+  "fastapi==0.116.1",
+  "uvicorn==0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.0.3",
+  "ruff==0.15.12",
+]
+
+[project.scripts]
+ai-web-tester = "main:main"
+ai-web-tester-api = "run_api:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-q"

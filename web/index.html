@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Web Tester - MVP</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <header class="container">
+    <h1>AI Web Tester</h1>
+    <p class="subtitle">Website Audit MVP Dashboard</p>
+  </header>
+
+  <main class="container grid">
+    <section class="card">
+      <h2>New Audit Run</h2>
+      <form id="run-form">
+        <label>Target URL
+          <input id="url" type="url" required placeholder="https://example.com">
+        </label>
+        <label>Max Pages
+          <input id="max_pages" type="number" min="1" max="500" value="10">
+        </label>
+        <label>Format
+          <select id="format">
+            <option value="html">html</option>
+            <option value="json">json</option>
+            <option value="both">both</option>
+          </select>
+        </label>
+        <div class="checks">
+          <label><input id="no_ai" type="checkbox"> Skip AI</label>
+          <label><input id="no_seo" type="checkbox"> Skip SEO</label>
+          <label><input id="no_perf" type="checkbox"> Skip Performance</label>
+        </div>
+        <button type="submit">Start Run</button>
+      </form>
+      <p id="submit-status" class="muted"></p>
+    </section>
+
+    <section class="card">
+      <div class="runs-header">
+        <h2>Recent Runs</h2>
+        <button id="refresh-btn" class="secondary">Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>URL</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Report</th>
+          </tr>
+        </thead>
+        <tbody id="runs-body">
+          <tr><td colspan="5">Loading...</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <section class="container card">
+    <h2>Run Details</h2>
+    <pre id="run-details">Select a run row to inspect details.</pre>
+  </section>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>

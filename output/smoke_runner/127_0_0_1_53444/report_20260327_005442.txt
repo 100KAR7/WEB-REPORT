@@ -1,0 +1,52 @@
+════════════════════════════════════════════════════════════════════
+  AI WEB TESTER  —  REPORT
+════════════════════════════════════════════════════════════════════
+  Site:                        http://127.0.0.1:53444
+  Generated:                   2026-03-27T00:54:42
+  Total pages:                 3
+────────────────────────────────────────────────────────────────────
+
+  OVERALL HEALTH
+────────────────────────────────────────────────────────────────────
+  Pages passing UI tests:      0 / 0
+  Pages with errors:           0
+  Total console errors:        0
+  Total JS exceptions:         0
+  Avg load time:               0 ms
+
+  Avg SEO score:               0 / 100
+  Best SEO score:              0 / 100
+  Worst SEO score:             0 / 100
+  SEO errors:                  0
+  SEO warnings:                0
+
+  SEO SUMMARY
+────────────────────────────────────────────────────────────────────
+  SEO pages analysed:          0 page(s)
+  Missing <title>:             0 page(s)
+  Missing meta description:    0 page(s)
+  Missing <h1>:                0 page(s)
+  Missing canonical tag:       0 page(s)
+  Images missing alt text:     0 / 0
+  Thin content pages:          0 page(s) (< 300 words)
+  Avg word count:              0
+
+  PAGE-BY-PAGE BREAKDOWN
+────────────────────────────────────────────────────────────────────
+
+  [1] http://127.0.0.1:53444/
+      UI:  SKIPPED
+      SEO: SKIPPED
+
+  [2] http://127.0.0.1:53444/about
+      UI:  SKIPPED
+      SEO: SKIPPED
+
+  [3] http://127.0.0.1:53444/missing
+      UI:  SKIPPED
+      SEO: SKIPPED
+
+────────────────────────────────────────────────────────────────────
+════════════════════════════════════════════════════════════════════
+  END OF REPORT
+════════════════════════════════════════════════════════════════════

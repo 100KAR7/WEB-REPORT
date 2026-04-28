@@ -1,0 +1,45 @@
+════════════════════════════════════════════════════════════════════
+  AI WEB TESTER  —  REPORT
+════════════════════════════════════════════════════════════════════
+  Site:                        https://example.com
+  Generated:                   2026-03-27T00:58:20
+  Total pages:                 1
+────────────────────────────────────────────────────────────────────
+
+  OVERALL HEALTH
+────────────────────────────────────────────────────────────────────
+  Pages passing UI tests:      0 / 0
+  Pages with errors:           0
+  Total console errors:        0
+  Total JS exceptions:         0
+  Avg load time:               0 ms
+
+  Avg SEO score:               0 / 100
+  Best SEO score:              0 / 100
+  Worst SEO score:             0 / 100
+  SEO errors:                  0
+  SEO warnings:                0
+
+  SEO SUMMARY
+────────────────────────────────────────────────────────────────────
+  SEO pages analysed:          0 page(s)
+  Missing <title>:             0 page(s)
+  Missing meta description:    0 page(s)
+  Missing <h1>:                0 page(s)
+  Missing canonical tag:       0 page(s)
+  Images missing alt text:     0 / 0
+  Thin content pages:          0 page(s) (< 300 words)
+  Avg word count:              0
+
+  PAGE-BY-PAGE BREAKDOWN
+────────────────────────────────────────────────────────────────────
+
+  [1] https://example.com/
+      UI:  SKIPPED
+      SEO: SKIPPED
+      ERROR: UI test failed: [WinError 5] Access is denied | SEO analysis failed: [WinError 5
+
+────────────────────────────────────────────────────────────────────
+════════════════════════════════════════════════════════════════════
+  END OF REPORT
+════════════════════════════════════════════════════════════════════

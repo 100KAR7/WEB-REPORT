@@ -1,0 +1,27 @@
+{
+  "run_at": "2026-03-27T00:54:42",
+  "total_s": 0.96,
+  "dry_run": false,
+  "llm_enabled": false,
+  "pdf_enabled": false,
+  "ollama_model": "llama3",
+  "sites_total": 1,
+  "sites_passed": 1,
+  "sites_failed": 0,
+  "sites": [
+    {
+      "url": "http://127.0.0.1:53444",
+      "label": "127.0.0.1:53444",
+      "success": true,
+      "pages_found": 3,
+      "report_paths": {
+        "json": "output\\smoke_runner\\127_0_0_1_53444\\report_20260327_005442.json",
+        "txt": "output\\smoke_runner\\127_0_0_1_53444\\report_20260327_005442.txt"
+      },
+      "error": null,
+      "duration_s": 0.95,
+      "attempts": 1,
+      "started_at": "2026-03-27T00:54:41"
+    }
+  ]
+}

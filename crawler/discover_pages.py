@@ -1,102 +1,110 @@
 """
-example_usage.py
-----------------
-Demonstrates every way to use discover_pages().
+crawler/discover_pages.py
+-------------------------
+Discover internal pages for a site using requests + BeautifulSoup.
 
-Run from the project root:
-    python example_usage.py
+This module powers the newer pipeline in ``pipeline/run_pipeline.py`` and
+returns a plain ``list[str]`` of crawlable internal URLs.
 """
 
-import sys
-import os
+from __future__ import annotations
 
-# Allow running from the project root without installing the package
-sys.path.insert(0, os.path.dirname(__file__))
+import time
+from collections import deque
+from urllib.parse import urljoin, urldefrag, urlparse
 
-from crawler.discover_pages import discover_pages
-
-
-# ── Example 1 — Basic usage ────────────────────────────────────────────────
-def example_basic():
-    print("=" * 60)
-    print("EXAMPLE 1 — Basic crawl (default settings)")
-    print("=" * 60)
-
-    pages = discover_pages("https://books.toscrape.com", max_pages=10)
-
-    print(f"\nFound {len(pages)} pages:\n")
-    for page in pages:
-        print(f"  {page}")
+import requests
+from bs4 import BeautifulSoup
 
 
-# ── Example 2 — Quiet mode + inspect results ──────────────────────────────
-def example_quiet():
-    print("\n" + "=" * 60)
-    print("EXAMPLE 2 — Quiet mode, inspect result list")
-    print("=" * 60)
+def discover_pages(
+    start_url: str,
+    max_pages: int = 10,
+    verbose: bool = False,
+    timeout: float = 10.0,
+    crawl_delay: float = 0.0,
+    user_agent: str = "AIWebTester/1.0",
+) -> list[str]:
+    """
+    Crawl ``start_url`` and return up to ``max_pages`` internal URLs.
 
-    pages = discover_pages(
-        "https://books.toscrape.com",
-        max_pages=5,
-        verbose=False,   # ← no console noise
-    )
+    The crawler keeps the traversal intentionally simple:
+      - breadth-first search from the seed URL
+      - same-host links only
+      - fragments, mailto, tel, and javascript links are ignored
+    """
+    if max_pages < 1:
+        return []
 
-    # Handy things you can do with the list:
-    print(f"Total pages found : {len(pages)}")
-    print(f"First page        : {pages[0]  if pages else 'none'}")
-    print(f"Last page         : {pages[-1] if pages else 'none'}")
+    session = requests.Session()
+    session.headers["User-Agent"] = user_agent
 
-    # Filter by path pattern
-    catalogue = [p for p in pages if "/catalogue/" in p]
-    print(f"Catalogue pages   : {len(catalogue)}")
+    seed = _normalize_url(start_url, start_url)
+    if not seed:
+        return []
+
+    base_host = urlparse(seed).netloc
+    queue: deque[str] = deque([seed])
+    visited: set[str] = set()
+    discovered: list[str] = []
+
+    while queue and len(discovered) < max_pages:
+        url = queue.popleft()
+        if url in visited:
+            continue
+
+        visited.add(url)
+
+        if verbose:
+            print(f"  • Crawling: {url}")
+
+        try:
+            response = session.get(url, timeout=timeout)
+            response.raise_for_status()
+        except Exception as exc:
+            if verbose:
+                print(f"    ! Skipping links on {url}: {exc}")
+            continue
+
+        discovered.append(url)
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        for anchor in soup.find_all("a", href=True):
+            candidate = _normalize_url(anchor["href"], url)
+            if not candidate:
+                continue
+
+            parsed = urlparse(candidate)
+            if parsed.netloc != base_host:
+                continue
+            if candidate in visited or candidate in queue:
+                continue
+            if len(discovered) + len(queue) >= max_pages:
+                break
+
+            queue.append(candidate)
+
+        if crawl_delay > 0:
+            time.sleep(crawl_delay)
+
+    return discovered
 
 
-# ── Example 3 — Save to file ──────────────────────────────────────────────
-def example_save_to_file():
-    print("\n" + "=" * 60)
-    print("EXAMPLE 3 — Save discovered URLs to a text file")
-    print("=" * 60)
+def _normalize_url(href: str, current_url: str) -> str:
+    """Resolve and clean a URL so it is stable for dedupe and crawling."""
+    if not href:
+        return ""
 
-    pages = discover_pages(
-        "https://books.toscrape.com",
-        max_pages=10,
-        verbose=False,
-    )
+    href = href.strip()
+    if href.startswith(("#", "mailto:", "tel:", "javascript:")):
+        return ""
 
-    output_file = "discovered_urls.txt"
-    with open(output_file, "w") as f:
-        for url in pages:
-            f.write(url + "\n")
+    absolute = urljoin(current_url, href)
+    cleaned, _fragment = urldefrag(absolute)
+    parsed = urlparse(cleaned)
 
-    print(f"Saved {len(pages)} URLs → {output_file}")
+    if parsed.scheme not in {"http", "https"}:
+        return ""
 
-
-# ── Example 4 — Integrate with the rest of the pipeline ──────────────────
-def example_pipeline_integration():
-    print("\n" + "=" * 60)
-    print("EXAMPLE 4 — Feed results into another module")
-    print("=" * 60)
-
-    # Discover first, then hand the URL list to any downstream module.
-    # Nothing in discover_pages cares about the rest of the project —
-    # it just returns plain strings.
-
-    urls = discover_pages(
-        "https://books.toscrape.com",
-        max_pages=5,
-        verbose=False,
-    )
-
-    # Simulate handing off to a checker
-    print(f"\nPassing {len(urls)} URLs to downstream checker...\n")
-    for url in urls:
-        # e.g. performance_checker, seo_checker, ai_analyzer …
-        print(f"  → would audit: {url}")
-
-
-# ── Run all examples ──────────────────────────────────────────────────────
-if __name__ == "__main__":
-    example_basic()
-    example_quiet()
-    example_save_to_file()
-    example_pipeline_integration()
+    path = parsed.path or "/"
+    return parsed._replace(path=path, params="", query="", fragment="").geturl()

@@ -609,5 +609,5 @@ if __name__ == "__main__":
         browser.close()
 
     print(json.dumps(result.to_dict(), indent=2))
-    print(f"\n── Summary ─────────────────────────────────────────────────")
+    print("\n── Summary ─────────────────────────────────────────────────")
     print(result.summary())

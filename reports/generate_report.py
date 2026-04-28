@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -56,11 +55,13 @@ DEFAULT_OUTPUT_DIR = "output"
 class _PageSummary:
     """Flattened view of one page — UI + SEO combined."""
     url:               str
+    ui_present:        bool  = False
     status_code:       int   = 0
     load_time_ms:      float = 0.0
     ui_success:        bool  = False
     console_errors:    list  = field(default_factory=list)
     js_exceptions:     list  = field(default_factory=list)
+    seo_present:       bool  = False
     seo_score:         int   = 0
     seo_title:         str   = ""
     seo_meta_desc:     str   = ""
@@ -150,8 +151,8 @@ class ReportBuilder:
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(self._build_text())
 
-        print(f"  💾  JSON report → {json_path}")
-        print(f"  📄  Text report → {txt_path}")
+        print(f"  JSON report -> {json_path}")
+        print(f"  Text report -> {txt_path}")
         return {"json": json_path, "txt": txt_path}
 
     def save_json(self, path: Optional[str] = None) -> str:
@@ -207,6 +208,7 @@ class ReportBuilder:
             },
             "summary": {
                 "total_pages":          len(self._pages),
+                "pages_ui_tested":      stats["ui_tested"],
                 "pages_ok":             stats["ui_ok"],
                 "pages_failed":         stats["ui_failed"],
                 "pages_with_errors":    stats["pages_with_errors"],
@@ -220,6 +222,7 @@ class ReportBuilder:
                 "total_seo_warnings":   stats["total_seo_warnings"],
             },
             "seo_summary": {
+                "pages_analyzed":            seo_agg["pages_analyzed"],
                 "pages_missing_title":       seo_agg["missing_title"],
                 "pages_missing_meta_desc":   seo_agg["missing_meta"],
                 "pages_missing_h1":          seo_agg["missing_h1"],
@@ -267,7 +270,7 @@ class ReportBuilder:
         # ── Overall health ────────────────────────────────────────────────
         title("OVERALL HEALTH")
         hr()
-        row("Pages passing UI tests:", f"{stats['ui_ok']} / {len(self._pages)}")
+        row("Pages passing UI tests:", f"{stats['ui_ok']} / {stats['ui_tested']}")
         row("Pages with errors:",      str(stats["pages_with_errors"]))
         row("Total console errors:",   str(stats["total_console_errors"]))
         row("Total JS exceptions:",    str(stats["total_js_exceptions"]))
@@ -283,6 +286,7 @@ class ReportBuilder:
         # ── SEO summary ───────────────────────────────────────────────────
         title("SEO SUMMARY")
         hr()
+        row("SEO pages analysed:",       f"{seo_agg['pages_analyzed']} page(s)")
         row("Missing <title>:",          f"{seo_agg['missing_title']} page(s)")
         row("Missing meta description:", f"{seo_agg['missing_meta']} page(s)")
         row("Missing <h1>:",             f"{seo_agg['missing_h1']} page(s)")
@@ -301,32 +305,38 @@ class ReportBuilder:
             title(f"[{i}] {page.url}")
 
             # UI
-            ui_status = "PASS" if page.ui_success else "FAIL"
-            lines.append(f"      UI:  {ui_status}  |  Status {page.status_code}"
-                         f"  |  Load {page.load_time_ms:.0f}ms"
-                         f"  |  Console errors: {len(page.console_errors)}")
+            if page.ui_present:
+                ui_status = "PASS" if page.ui_success else "FAIL"
+                lines.append(f"      UI:  {ui_status}  |  Status {page.status_code}"
+                             f"  |  Load {page.load_time_ms:.0f}ms"
+                             f"  |  Console errors: {len(page.console_errors)}")
 
-            if page.console_errors:
-                for err in page.console_errors[:3]:
-                    lines.append(f"          • {err[:80]}")
-                if len(page.console_errors) > 3:
-                    lines.append(f"          … +{len(page.console_errors)-3} more")
+                if page.console_errors:
+                    for err in page.console_errors[:3]:
+                        lines.append(f"          • {err[:80]}")
+                    if len(page.console_errors) > 3:
+                        lines.append(f"          … +{len(page.console_errors)-3} more")
+            else:
+                lines.append("      UI:  SKIPPED")
 
             # SEO
-            seo_bar = _score_bar(page.seo_score)
-            lines.append(f"      SEO: {page.seo_score:>3}/100  {seo_bar}")
+            if page.seo_present:
+                seo_bar = _score_bar(page.seo_score)
+                lines.append(f"      SEO: {page.seo_score:>3}/100  {seo_bar}")
 
-            if page.seo_issues:
-                errors   = [x for x in page.seo_issues if x.get("severity") == "error"]
-                warnings = [x for x in page.seo_issues if x.get("severity") == "warning"]
-                for issue in errors[:3]:
-                    lines.append(f"          [ERROR]   {issue['message'][:70]}")
-                for issue in warnings[:3]:
-                    lines.append(f"          [WARNING] {issue['message'][:70]}")
-                total_issues = len(page.seo_issues)
-                shown = min(6, total_issues)
-                if total_issues > shown:
-                    lines.append(f"          … +{total_issues - shown} more issue(s)")
+                if page.seo_issues:
+                    errors   = [x for x in page.seo_issues if x.get("severity") == "error"]
+                    warnings = [x for x in page.seo_issues if x.get("severity") == "warning"]
+                    for issue in errors[:3]:
+                        lines.append(f"          [ERROR]   {issue['message'][:70]}")
+                    for issue in warnings[:3]:
+                        lines.append(f"          [WARNING] {issue['message'][:70]}")
+                    total_issues = len(page.seo_issues)
+                    shown = min(6, total_issues)
+                    if total_issues > shown:
+                        lines.append(f"          … +{total_issues - shown} more issue(s)")
+            else:
+                lines.append("      SEO: SKIPPED")
 
             if page.page_error:
                 lines.append(f"      ERROR: {page.page_error[:80]}")
@@ -402,6 +412,8 @@ def _extract_page_summary(result) -> _PageSummary:
 
     ui  = _get(result, "ui")
     seo = _get(result, "seo")
+    ui_present = ui is not None
+    seo_present = seo is not None
 
     # UI fields
     status_code    = _get(ui, "status_code",    0)    if ui else 0
@@ -437,11 +449,13 @@ def _extract_page_summary(result) -> _PageSummary:
 
     return _PageSummary(
         url            = url,
+        ui_present     = ui_present,
         status_code    = status_code,
         load_time_ms   = load_time_ms,
         ui_success     = ui_success,
         console_errors = console_errors,
         js_exceptions  = js_exceptions,
+        seo_present    = seo_present,
         seo_score      = seo_score,
         seo_title      = title,
         seo_meta_desc  = meta_desc,
@@ -459,20 +473,23 @@ def _compute_stats(pages: list[_PageSummary]) -> dict:
     """Compute aggregate numeric stats across all pages."""
     if not pages:
         return {k: 0 for k in [
-            "ui_ok","ui_failed","pages_with_errors","total_console_errors",
+            "ui_ok","ui_failed","ui_tested","pages_with_errors","total_console_errors",
             "total_js_exceptions","avg_load_ms","avg_seo","min_seo",
             "max_seo","total_seo_errors","total_seo_warnings"
         ]}
 
-    seo_scores = [p.seo_score for p in pages if p.seo_score > 0]
+    ui_pages = [p for p in pages if p.ui_present]
+    seo_pages = [p for p in pages if p.seo_present]
+    seo_scores = [p.seo_score for p in seo_pages]
 
     return {
-        "ui_ok":               sum(1 for p in pages if p.ui_success),
-        "ui_failed":           sum(1 for p in pages if not p.ui_success),
-        "pages_with_errors":   sum(1 for p in pages if p.console_errors or p.js_exceptions),
-        "total_console_errors":sum(len(p.console_errors) for p in pages),
-        "total_js_exceptions": sum(len(p.js_exceptions)  for p in pages),
-        "avg_load_ms":         round(sum(p.load_time_ms for p in pages) / len(pages), 1),
+        "ui_ok":               sum(1 for p in ui_pages if p.ui_success),
+        "ui_failed":           sum(1 for p in ui_pages if not p.ui_success),
+        "ui_tested":           len(ui_pages),
+        "pages_with_errors":   sum(1 for p in ui_pages if p.console_errors or p.js_exceptions),
+        "total_console_errors":sum(len(p.console_errors) for p in ui_pages),
+        "total_js_exceptions": sum(len(p.js_exceptions)  for p in ui_pages),
+        "avg_load_ms":         round(sum(p.load_time_ms for p in ui_pages) / len(ui_pages), 1) if ui_pages else 0,
         "avg_seo":             round(sum(seo_scores) / len(seo_scores), 1) if seo_scores else 0,
         "min_seo":             min(seo_scores, default=0),
         "max_seo":             max(seo_scores, default=0),
@@ -491,20 +508,35 @@ def _compute_seo_aggregates(pages: list[_PageSummary]) -> dict:
     """Compute SEO-specific field-level aggregates."""
     if not pages:
         return {k: 0 for k in [
-            "missing_title","missing_meta","missing_h1","missing_canonical",
+            "pages_analyzed","missing_title","missing_meta","missing_h1","missing_canonical",
             "total_images","missing_alt","thin_content","avg_words"
         ]}
 
+    seo_pages = [p for p in pages if p.seo_present]
+    if not seo_pages:
+        return {
+            "pages_analyzed": 0,
+            "missing_title": 0,
+            "missing_meta": 0,
+            "missing_h1": 0,
+            "missing_canonical": 0,
+            "total_images": 0,
+            "missing_alt": 0,
+            "thin_content": 0,
+            "avg_words": 0,
+        }
+
     return {
-        "missing_title":     sum(1 for p in pages if not p.seo_title),
-        "missing_meta":      sum(1 for p in pages if not p.seo_meta_desc),
-        "missing_h1":        sum(1 for p in pages if p.seo_h1_count == 0),
-        "missing_canonical": sum(1 for p in pages if p.seo_canonical is None),
-        "total_images":      sum(p.seo_images_total for p in pages),
-        "missing_alt":       sum(p.seo_missing_alt  for p in pages),
-        "thin_content":      sum(1 for p in pages if 0 < p.seo_word_count < 300),
+        "pages_analyzed":    len(seo_pages),
+        "missing_title":     sum(1 for p in seo_pages if not p.seo_title),
+        "missing_meta":      sum(1 for p in seo_pages if not p.seo_meta_desc),
+        "missing_h1":        sum(1 for p in seo_pages if p.seo_h1_count == 0),
+        "missing_canonical": sum(1 for p in seo_pages if p.seo_canonical is None),
+        "total_images":      sum(p.seo_images_total for p in seo_pages),
+        "missing_alt":       sum(p.seo_missing_alt  for p in seo_pages),
+        "thin_content":      sum(1 for p in seo_pages if 0 < p.seo_word_count < 300),
         "avg_words":         round(
-            sum(p.seo_word_count for p in pages) / len(pages), 1
+            sum(p.seo_word_count for p in seo_pages) / len(seo_pages), 1
         ),
     }
 
@@ -513,14 +545,14 @@ def _page_to_dict(p: _PageSummary) -> dict:
     """Convert _PageSummary to a JSON-serialisable dict."""
     return {
         "url":             p.url,
-        "ui": {
+        "ui": ({
             "success":        p.ui_success,
             "status_code":    p.status_code,
             "load_time_ms":   p.load_time_ms,
             "console_errors": p.console_errors,
             "js_exceptions":  p.js_exceptions,
-        },
-        "seo": {
+        } if p.ui_present else None),
+        "seo": ({
             "score":          p.seo_score,
             "title":          p.seo_title,
             "meta_description": p.seo_meta_desc,
@@ -530,7 +562,7 @@ def _page_to_dict(p: _PageSummary) -> dict:
             "images_missing_alt": p.seo_missing_alt,
             "word_count":     p.seo_word_count,
             "issues":         p.seo_issues,
-        },
+        } if p.seo_present else None),
         "error": p.page_error,
     }
 
@@ -539,10 +571,14 @@ def _score_bar(score: int, width: int = 20) -> str:
     """Render a simple ASCII progress bar for an SEO score 0–100."""
     filled = round((score / 100) * width)
     bar    = "█" * filled + "░" * (width - filled)
-    if score >= 80:   grade = "GOOD"
-    elif score >= 60: grade = "FAIR"
-    elif score >= 40: grade = "POOR"
-    else:             grade = "CRITICAL"
+    if score >= 80:
+        grade = "GOOD"
+    elif score >= 60:
+        grade = "FAIR"
+    elif score >= 40:
+        grade = "POOR"
+    else:
+        grade = "CRITICAL"
     return f"|{bar}| {grade}"
 
 

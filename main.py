@@ -63,11 +63,12 @@ def main() -> None:
     settings.run_ai_analysis    = not args.no_ai
     settings.run_seo            = not args.no_seo
     settings.run_performance    = not args.no_perf
+    settings.validate_runtime(args.url, args.max_pages)
 
     try:
         runner = PipelineRunner(url=args.url, max_pages=args.max_pages)
         report_path = runner.run()
-        print(f"\n📄 Report ready → {report_path}\n")
+        print(f"\nReport ready -> {report_path}\n")
     except KeyboardInterrupt:
         logger.warning("Interrupted by user.")
         sys.exit(0)

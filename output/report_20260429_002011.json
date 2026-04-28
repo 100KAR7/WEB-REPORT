@@ -1,0 +1,42 @@
+{
+  "target_url": "https://example.com",
+  "generated_at": "2026-04-29 00:20:11",
+  "performance": [
+    {
+      "url": "https://example.com",
+      "load_time_ms": 1364.98,
+      "is_slow": false,
+      "score": "Fair"
+    }
+  ],
+  "broken_links": [],
+  "seo": [
+    {
+      "url": "https://example.com",
+      "issues": [
+        {
+          "severity": "error",
+          "message": "Missing meta description"
+        }
+      ]
+    }
+  ],
+  "ai_insights": [
+    {
+      "url": "Site-wide analysis (1 page(s))",
+      "insight": "Site-Wide Analysis:\n\n**Clarity:** The page's title and content are unclear about the purpose of the website. The title \"Example Domain\" doesn't provide any context, and the content excerpt only mentions a domain for documentation examples.\n\n**UX Issues:** The missing meta description and slow load time (1365 ms) may negatively impact search engine rankings and user experience.\n\n**Actionable Improvements:**\n\n1. **Update Title and Content:** Revise the title to clearly state the website's purpose, and rephrase the content excerpt to provide a concise summary.\n2. **Add Meta Description:** Write a compelling meta description that summarizes"
+    }
+  ],
+  "ai_status": {
+    "enabled": true,
+    "attempted": true,
+    "status": "completed",
+    "provider": "ollama",
+    "model": "llama3",
+    "endpoint": "http://localhost:11434",
+    "pages_considered": 1,
+    "pages_eligible": 1,
+    "insights_count": 1,
+    "message": "Generated 1 AI insight(s) from 1 eligible page(s)."
+  }
+}

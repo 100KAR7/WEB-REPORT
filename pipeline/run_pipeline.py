@@ -41,7 +41,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -51,6 +51,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from crawler.discover_pages import discover_pages   # ① URL discovery
 from tests.ui_tests import UITester, UITestResult   # ③ Playwright UI tests
 from seo.analyzer import SEOAnalyzer, SEOResult     # ④ SEO analysis
+
+
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+            except Exception:
+                pass
+
+
+_configure_stdio()
 
 
 # ---------------------------------------------------------------------------
@@ -182,30 +194,36 @@ class Pipeline:
 
     def _process_page(self, url: str, idx: int, total: int) -> PageResult:
         """Run UI test and SEO analysis on one page; return a PageResult."""
-        result    = PageResult(url=url)
+        result     = PageResult(url=url)
         page_start = time.perf_counter()
+        errors: list[str] = []
 
-        try:
-            # ── ③ UI Test ─────────────────────────────────────────────
-            if self.run_ui and self._ui_tester:
+        # ── ③ UI Test ─────────────────────────────────────────────
+        if self.run_ui and self._ui_tester:
+            try:
                 print("       → UI test ...", end=" ", flush=True)
                 result.ui = self._ui_tester.test_page(url)
                 status    = "✓" if result.ui.success else "✗"
                 errs      = len(result.ui.console_errors)
                 print(f"{status}  load={result.ui.load_time_ms:.0f}ms  console_errors={errs}")
+            except Exception as exc:
+                errors.append(f"UI test failed: {exc}")
+                print(f"✗  {exc}")
 
-            # ── ④ SEO Analysis ────────────────────────────────────────
-            if self.run_seo:
+        # ── ④ SEO Analysis ────────────────────────────────────────
+        if self.run_seo:
+            try:
                 print("       → SEO analysis ...", end=" ", flush=True)
                 seo_result = self._run_seo(url, result.ui)
                 result.seo = seo_result
                 print(f"✓  score={seo_result.score}/100  issues={len(seo_result.issues)}")
-
-        except Exception as exc:
-            result.error = str(exc)
-            print(f"\n       ✗ Error: {exc}")
+            except Exception as exc:
+                errors.append(f"SEO analysis failed: {exc}")
+                print(f"✗  {exc}")
 
         result.duration_s = time.perf_counter() - page_start
+        if errors:
+            result.error = " | ".join(errors)
         return result
 
     def _run_seo(self, url: str, ui_result: Optional[UITestResult]) -> SEOResult:
@@ -308,7 +326,7 @@ def _print_results_table(results: list[PageResult]) -> None:
         )
 
     print("  " + "-" * (_W - 2))
-    print(f"  Legend: CE = Console Errors  |  SEO = SEO score out of 100")
+    print("  Legend: CE = Console Errors  |  SEO = SEO score out of 100")
 
 
 def _print_footer(results: list[PageResult], total_s: float) -> None:

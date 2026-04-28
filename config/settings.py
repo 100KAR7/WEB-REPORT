@@ -7,7 +7,14 @@ All settings are loaded from environment variables or .env file.
 
 import os
 from dataclasses import dataclass, field
-from dotenv import load_dotenv
+from urllib.parse import urlparse
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*_args, **_kwargs):
+        """Fallback when python-dotenv is not installed."""
+        return False
 
 load_dotenv()
 
@@ -28,6 +35,15 @@ class Settings:
         default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", "")
     )
     ai_model: str = "claude-sonnet-4-20250514"
+    ollama_url: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_URL", "http://localhost:11434")
+    )
+    ollama_model: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_MODEL", "llama3")
+    )
+    ai_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("AI_TIMEOUT_SECONDS", "240"))
+    )
 
     # --- Reports ---
     report_output_dir: str = "output"
@@ -37,6 +53,18 @@ class Settings:
     run_seo: bool = True
     run_performance: bool = True
     run_ai_analysis: bool = True
+
+    def validate_runtime(self, url: str, max_pages: int) -> None:
+        """Validate user-provided runtime inputs before pipeline execution."""
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("`--url` must be a valid http(s) URL.")
+
+        if max_pages < 1:
+            raise ValueError("`--max-pages` must be greater than 0.")
+
+        if self.report_format not in {"html", "json", "both"}:
+            raise ValueError("`report_format` must be one of: html, json, both.")
 
 
 # Singleton instance used across modules

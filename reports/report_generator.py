@@ -7,8 +7,13 @@ Generates HTML and JSON reports from collected audit data.
 import json
 import os
 from datetime import datetime
+from html import escape
 
-from jinja2 import Environment
+try:
+    from jinja2 import Environment, Template
+except ImportError:
+    Environment = None
+    Template = None
 
 from config.settings import settings
 from config.logging_config import logger
@@ -622,6 +627,16 @@ HTML_TEMPLATE = """
         </div>
         <span class="pill">{{ ai_insights|length }} page(s)</span>
       </div>
+      {% if ai_status %}
+      <div class="empty">
+        <strong>Status:</strong> {{ ai_status.status | replace('_', ' ') | title }}
+        {% if ai_status.provider %}<br><strong>Backend:</strong> {{ ai_status.provider }}{% endif %}
+        {% if ai_status.model %}<br><strong>Model:</strong> {{ ai_status.model }}{% endif %}
+        {% if ai_status.endpoint %}<br><strong>Endpoint:</strong> {{ ai_status.endpoint }}{% endif %}
+        <br><strong>Eligible pages:</strong> {{ ai_status.pages_eligible }} / {{ ai_status.pages_considered }}
+        {% if ai_status.message %}<br><strong>Details:</strong> {{ ai_status.message }}{% endif %}
+      </div>
+      {% endif %}
       {% if ai_insights %}
       <div class="issue-groups">
         {% for item in ai_insights %}
@@ -643,6 +658,147 @@ HTML_TEMPLATE = """
 """
 
 
+def _render_html_report(data: dict) -> str:
+    def perf_rows() -> str:
+        rows = []
+        for row in data["performance"]:
+            score = str(row.get("score", ""))
+            rows.append(
+                "<tr>"
+                f"<td>{escape(str(row.get('url', '')))}</td>"
+                f"<td>{escape(str(row.get('load_time_ms', '')))}</td>"
+                f"<td class=\"score-{escape(score.lower())}\">{escape(score)}</td>"
+                "</tr>"
+            )
+        return "".join(rows) or (
+            "<tr><td colspan=\"3\">No performance data available.</td></tr>"
+        )
+
+    def broken_links_section() -> str:
+        if not data["broken_links"]:
+            return '<div class="card info">No broken links found.</div>'
+
+        rows = []
+        for row in data["broken_links"]:
+            rows.append(
+                "<tr>"
+                f"<td>{escape(str(row.get('source_url', '')))}</td>"
+                f"<td>{escape(str(row.get('broken_url', '')))}</td>"
+                f"<td>{escape(str(row.get('status_code', '')))}</td>"
+                "</tr>"
+            )
+        return (
+            "<table>"
+            "<tr><th>Found On</th><th>Broken URL</th><th>Status</th></tr>"
+            f"{''.join(rows)}"
+            "</table>"
+        )
+
+    def seo_section() -> str:
+        if not data["seo"]:
+            return '<div class="card info">No SEO issues found.</div>'
+
+        blocks = []
+        for page in data["seo"]:
+            issues = page.get("issues", [])
+            issue_html = "".join(
+                (
+                    f'<div class="card {"warning" if issue.get("severity") == "warning" else ""}">'
+                    f"<strong>[{escape(str(issue.get('severity', '')).upper())}]</strong> "
+                    f"{escape(str(issue.get('message', '')))}"
+                    "</div>"
+                )
+                for issue in issues
+            ) or '<div class="card info">No issues recorded for this page.</div>'
+            blocks.append(
+                f"<h3>{escape(str(page.get('url', '')))}</h3>{issue_html}"
+            )
+        return "".join(blocks)
+
+    def ai_section() -> str:
+        status = data.get("ai_status") or {}
+        status_html = ""
+        if status:
+            card_class = escape(str(status.get("status", "info")).replace("_", "-"))
+            status_html = (
+                f'<div class="card ai-{card_class}">'
+                f"<strong>Status:</strong> {escape(str(status.get('status', '')).replace('_', ' ').title())}"
+            )
+            if status.get("provider"):
+                status_html += f"<br><strong>Backend:</strong> {escape(str(status.get('provider', '')))}"
+            if status.get("model"):
+                status_html += f"<br><strong>Model:</strong> {escape(str(status.get('model', '')))}"
+            if status.get("endpoint"):
+                status_html += f"<br><strong>Endpoint:</strong> {escape(str(status.get('endpoint', '')))}"
+            status_html += (
+                f"<br><strong>Eligible Pages:</strong> "
+                f"{escape(str(status.get('pages_eligible', 0)))} / "
+                f"{escape(str(status.get('pages_considered', 0)))}"
+            )
+            if status.get("message"):
+                status_html += f"<br><strong>Details:</strong> {escape(str(status.get('message', '')))}"
+            status_html += "</div>"
+
+        if not data["ai_insights"]:
+            return status_html + '<div class="card info">No AI insight text was included in this report.</div>'
+
+        blocks = []
+        for item in data["ai_insights"]:
+            blocks.append(
+                f"<h3>{escape(str(item.get('url', '')))}</h3>"
+                f"<div class=\"ai-insight\">{escape(str(item.get('insight', '')))}</div>"
+            )
+        return status_html + "".join(blocks)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Web Tester Report - {escape(str(data["target_url"]))}</title>
+  <style>
+    body {{ font-family: system-ui, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 20px; color: #333; }}
+    h1 {{ color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 8px; }}
+    h2 {{ color: #16213e; margin-top: 40px; }}
+    .meta {{ color: #666; font-size: 0.9rem; margin-bottom: 30px; }}
+    .card {{ background: #f8f9fa; border-left: 4px solid #e94560; padding: 16px 20px; margin: 12px 0; border-radius: 4px; }}
+    .card.warning {{ border-color: #f0a500; }}
+    .card.info {{ border-color: #4ecca3; }}
+    .card.ai-failed, .card.ai-skipped, .card.ai-no-content {{ border-color: #f0a500; }}
+    .card.ai-completed {{ border-color: #27ae60; }}
+    .score-poor {{ color: #e94560; font-weight: bold; }}
+    .score-fair {{ color: #f0a500; font-weight: bold; }}
+    .score-good {{ color: #4ecca3; font-weight: bold; }}
+    .score-excellent {{ color: #27ae60; font-weight: bold; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
+    th {{ background: #1a1a2e; color: #fff; padding: 10px; text-align: left; }}
+    td {{ padding: 10px; border-bottom: 1px solid #eee; }}
+    tr:hover td {{ background: #f1f1f1; }}
+    .ai-insight {{ background: #fff; border: 1px solid #ddd; padding: 16px; border-radius: 6px; white-space: pre-wrap; font-size: 0.95rem; line-height: 1.6; }}
+  </style>
+</head>
+<body>
+  <h1>AI Web Tester Report</h1>
+  <p class="meta">Target: <strong>{escape(str(data["target_url"]))}</strong> &nbsp;|&nbsp; Generated: {escape(str(data["generated_at"]))}</p>
+
+  <h2>Performance</h2>
+  <table>
+    <tr><th>URL</th><th>Load Time (ms)</th><th>Score</th></tr>
+    {perf_rows()}
+  </table>
+
+  <h2>Broken Links</h2>
+  {broken_links_section()}
+
+  <h2>SEO Issues</h2>
+  {seo_section()}
+
+  <h2>AI Insights</h2>
+  {ai_section()}
+</body>
+</html>
+"""
+
+
 class ReportGenerator:
     """Renders audit results into HTML and/or JSON reports."""
 
@@ -658,6 +814,7 @@ class ReportGenerator:
         page_health: list[dict] | None = None,
         sitewide_findings: list[dict] | None = None,
         recommendations: list[dict] | None = None,
+        ai_status: dict | None = None,
     ) -> str:
         """Writes report file(s) and returns path to the primary report."""
         os.makedirs(settings.report_output_dir, exist_ok=True)
@@ -676,6 +833,7 @@ class ReportGenerator:
             "page_health": page_health or [],
             "sitewide_findings": sitewide_findings or [],
             "recommendations": recommendations or [],
+            "ai_status": ai_status or {},
         }
 
         primary_path = ""
@@ -683,7 +841,13 @@ class ReportGenerator:
 
         if fmt in ("html", "both"):
             html_path = os.path.join(settings.report_output_dir, f"report_{timestamp}.html")
-            html = Environment(autoescape=True).from_string(HTML_TEMPLATE).render(**data)
+            html = (
+                Environment(autoescape=True).from_string(HTML_TEMPLATE).render(**data)
+                if Environment is not None
+                else Template(HTML_TEMPLATE).render(**data)
+                if Template is not None
+                else _render_html_report(data)
+            )
             with open(html_path, "w", encoding="utf-8") as file_handle:
                 file_handle.write(html)
             logger.info(f"HTML report saved: {html_path}")

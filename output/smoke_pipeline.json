@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-03-27T00:54:40",
+  "total_pages": 3,
+  "pages": [
+    {
+      "url": "http://127.0.0.1:53444/",
+      "duration_s": 0.0,
+      "error": null,
+      "ui": null,
+      "seo": null
+    },
+    {
+      "url": "http://127.0.0.1:53444/about",
+      "duration_s": 0.0,
+      "error": null,
+      "ui": null,
+      "seo": null
+    },
+    {
+      "url": "http://127.0.0.1:53444/missing",
+      "duration_s": 0.0,
+      "error": null,
+      "ui": null,
+      "seo": null
+    }
+  ]
+}

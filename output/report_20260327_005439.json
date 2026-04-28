@@ -1,0 +1,58 @@
+{
+  "target_url": "http://127.0.0.1:53444",
+  "generated_at": "2026-03-27 00:54:39",
+  "performance": [
+    {
+      "url": "http://127.0.0.1:53444",
+      "load_time_ms": 6.75,
+      "is_slow": false,
+      "score": "Excellent"
+    },
+    {
+      "url": "http://127.0.0.1:53444/missing",
+      "load_time_ms": 1.99,
+      "is_slow": false,
+      "score": "Excellent"
+    },
+    {
+      "url": "http://127.0.0.1:53444/about",
+      "load_time_ms": 2.0,
+      "is_slow": false,
+      "score": "Excellent"
+    },
+    {
+      "url": "http://127.0.0.1:53444/",
+      "load_time_ms": 2.0,
+      "is_slow": false,
+      "score": "Excellent"
+    }
+  ],
+  "broken_links": [
+    {
+      "source_url": "http://127.0.0.1:53444",
+      "broken_url": "http://127.0.0.1:53444/missing",
+      "status_code": 404
+    }
+  ],
+  "seo": [
+    {
+      "url": "http://127.0.0.1:53444",
+      "issues": [
+        {
+          "severity": "warning",
+          "message": "Title too short (9 chars)"
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:53444/",
+      "issues": [
+        {
+          "severity": "warning",
+          "message": "Title too short (9 chars)"
+        }
+      ]
+    }
+  ],
+  "ai_insights": []
+}

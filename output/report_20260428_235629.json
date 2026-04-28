@@ -1,0 +1,37 @@
+{
+  "target_url": "https://example.com",
+  "generated_at": "2026-04-28 23:56:29",
+  "performance": [
+    {
+      "url": "https://example.com",
+      "load_time_ms": 1818.66,
+      "is_slow": false,
+      "score": "Fair"
+    }
+  ],
+  "broken_links": [],
+  "seo": [
+    {
+      "url": "https://example.com",
+      "issues": [
+        {
+          "severity": "error",
+          "message": "Missing meta description"
+        }
+      ]
+    }
+  ],
+  "ai_insights": [],
+  "ai_status": {
+    "enabled": false,
+    "attempted": false,
+    "status": "skipped",
+    "provider": "",
+    "model": "",
+    "endpoint": "",
+    "pages_considered": 1,
+    "pages_eligible": 0,
+    "insights_count": 0,
+    "message": "AI analysis disabled by configuration."
+  }
+}

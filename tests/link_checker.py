@@ -54,7 +54,27 @@ class LinkChecker:
 
     def _get_status(self, url: str) -> int:
         try:
-            resp = self.session.head(url, timeout=settings.crawl_timeout, allow_redirects=True)
-            return resp.status_code
+            resp = self.session.head(
+                url,
+                timeout=settings.crawl_timeout,
+                allow_redirects=True,
+            )
+            status = resp.status_code
+            resp.close()
+            if status not in (403, 405, 501):
+                return status
+        except Exception:
+            pass
+
+        try:
+            resp = self.session.get(
+                url,
+                timeout=settings.crawl_timeout,
+                allow_redirects=True,
+                stream=True,
+            )
+            status = resp.status_code
+            resp.close()
+            return status
         except Exception:
             return 0

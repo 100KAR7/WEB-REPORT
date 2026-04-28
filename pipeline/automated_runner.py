@@ -1,56 +1,43 @@
 """
 pipeline/automated_runner.py
 -----------------------------
-Production-grade automated runner for the AI Web Tester.
+Production-grade automated runner — now with:
+  • Ollama LLM analysis (local, free, no API key)
+  • PDF report generation (via ReportLab)
+  • Structured file logging
+  • Per-site error isolation + retry logic
+  • Multi-site support (YAML config or CLI flags)
+  • Lockfile prevents overlapping cron runs
+  • Exit codes for CI/CD (0=all pass, 1=partial, 2=all fail)
 
-Adds on top of run_pipeline.py:
-  • Structured file logging  (logs/runner_YYYY-MM-DD.log)
-  • Per-site error isolation  (one site failing never kills the rest)
-  • Multi-site support        (YAML config or CLI --sites flag)
-  • Retry logic               (configurable attempts per site)
-  • Run summary email hook    (optional — set SMTP env vars)
-  • Exit codes for CI/CD      (0 = all passed, 1 = partial, 2 = all failed)
-  • Cron-ready                (idempotent, lockfile prevents overlapping runs)
+Cron examples (add with: crontab -e):
+  # Full run daily at 2 AM
+  0 2 * * * cd /path/to/ai_web_tester && python pipeline/automated_runner.py --config pipeline/sites.yaml >> logs/cron.log 2>&1
 
-Typical cron setup (see bottom of this file for full examples):
-  # Run every day at 2 AM
-  0 2 * * * /usr/bin/python3 /path/to/pipeline/automated_runner.py --config sites.yaml
+  # SEO-only every 6 hours
+  0 */6 * * * cd /path/to/ai_web_tester && python pipeline/automated_runner.py --config pipeline/sites.yaml --no-ui >> logs/cron.log 2>&1
+
+  # Full run + LLM + PDF every Monday at 6 AM
+  0 6 * * 1  cd /path/to/ai_web_tester && python pipeline/automated_runner.py --config pipeline/sites.yaml --llm --pdf >> logs/cron.log 2>&1
 
 Usage:
-  # Single site
   python pipeline/automated_runner.py --url https://example.com
-
-  # Multiple sites via CLI
-  python pipeline/automated_runner.py --urls https://example.com https://another.com
-
-  # Multiple sites via YAML config file
+  python pipeline/automated_runner.py --url https://example.com --llm --pdf
+  python pipeline/automated_runner.py --urls https://a.com https://b.com --llm --pdf
   python pipeline/automated_runner.py --config pipeline/sites.yaml
-
-  # Dry run (crawl only, no UI/SEO)
   python pipeline/automated_runner.py --config pipeline/sites.yaml --dry-run
-
-File layout created on first run:
-  logs/
-    runner_2024-03-15.log     ← one log file per day
-  output/
-    example_com/
-      report_20240315_020000.json
-      report_20240315_020000.txt
-    another_com/
-      report_20240315_021532.json
 """
 
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import logging
+import tempfile
 import os
 import smtplib
 import sys
 import time
-import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -58,11 +45,32 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
 # ── Project root on sys.path ───────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-# ── Optional YAML support (falls back to JSON if PyYAML not installed) ─────
+
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+            except Exception:
+                pass
+
+
+_configure_stdio()
+
 try:
     import yaml
     _YAML_AVAILABLE = True
@@ -71,16 +79,14 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Logging setup — writes to both console and a rotating daily log file
+# Logging — writes to console + daily log file
 # ---------------------------------------------------------------------------
 
 def setup_logging(log_dir: str = "logs", level: str = "INFO") -> logging.Logger:
     """
-    Configure logging to write to:
-      • stdout        — human-readable, coloured (if rich is available)
-      • logs/YYYY-MM-DD.log — plain text, one file per day
-
-    Returns the root logger for this tool.
+    Configure logging to:
+      • stdout        — coloured via rich (if installed) or plain text
+      • logs/runner_YYYY-MM-DD.log — one file per day, never truncated
     """
     Path(log_dir).mkdir(parents=True, exist_ok=True)
     log_file = Path(log_dir) / f"runner_{datetime.now().strftime('%Y-%m-%d')}.log"
@@ -92,26 +98,26 @@ def setup_logging(log_dir: str = "logs", level: str = "INFO") -> logging.Logger:
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
     logger.handlers.clear()
 
-    # ── File handler (always plain text) ─────────────────────────────────
+    # File handler (always plain text — cron-safe)
     fh = logging.FileHandler(log_file, encoding="utf-8")
     fh.setFormatter(logging.Formatter(fmt, datefmt=date_fmt))
     logger.addHandler(fh)
 
-    # ── Console handler (rich if available, else plain) ───────────────────
+    # Console handler (rich if available, else plain)
     try:
         from rich.logging import RichHandler
         ch = RichHandler(rich_tracebacks=True, show_path=False)
     except ImportError:
         ch = logging.StreamHandler(sys.stdout)
         ch.setFormatter(logging.Formatter(fmt, datefmt=date_fmt))
-
     logger.addHandler(ch)
-    logger.info(f"Logging to: {log_file}")
+
+    logger.info(f"Log file: {log_file}")
     return logger
 
 
 # ---------------------------------------------------------------------------
-# Site configuration
+# Configuration dataclasses
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -121,9 +127,11 @@ class SiteConfig:
     max_pages:  int   = 10
     run_ui:     bool  = True
     run_seo:    bool  = True
-    retries:    int   = 2          # how many times to retry on failure
-    label:      str   = ""         # friendly name (auto-derived if empty)
-    enabled:    bool  = True       # set False to skip without deleting
+    run_llm:    bool  = False     # Ollama LLM analysis
+    run_pdf:    bool  = False     # PDF report output
+    retries:    int   = 2
+    label:      str   = ""
+    enabled:    bool  = True
 
     def __post_init__(self):
         if not self.label:
@@ -134,14 +142,18 @@ class SiteConfig:
 @dataclass
 class RunnerConfig:
     """Top-level runner configuration."""
-    sites:        list[SiteConfig] = field(default_factory=list)
-    output_dir:   str  = "output"
-    log_dir:      str  = "logs"
-    log_level:    str  = "INFO"
-    headless:     bool = True
-    dry_run:      bool = False     # crawl only, skip UI/SEO
-    notify_email: str  = ""        # send summary to this address when done
-    lock_file:    str  = "/tmp/ai_web_tester.lock"
+    sites:         list[SiteConfig] = field(default_factory=list)
+    output_dir:    str  = "output"
+    log_dir:       str  = "logs"
+    log_level:     str  = "INFO"
+    headless:      bool = True
+    dry_run:       bool = False
+    run_llm:       bool = False   # global LLM toggle (overrides per-site)
+    run_pdf:       bool = False   # global PDF toggle
+    ollama_model:  str  = "llama3"
+    ollama_url:    str  = "http://localhost:11434"
+    notify_email:  str  = ""
+    lock_file:     str  = str(Path(tempfile.gettempdir()) / "ai_web_tester.lock")
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +166,7 @@ class SiteRunResult:
     site:         SiteConfig
     success:      bool           = False
     pages_found:  int            = 0
-    report_paths: dict           = field(default_factory=dict)  # {json, txt}
+    report_paths: dict           = field(default_factory=dict)
     error:        Optional[str]  = None
     duration_s:   float          = 0.0
     attempts:     int            = 0
@@ -177,17 +189,19 @@ class SiteRunResult:
 
 
 # ---------------------------------------------------------------------------
-# Automated multi-site runner
+# Automated runner
 # ---------------------------------------------------------------------------
 
 class AutomatedRunner:
     """
     Runs the full pipeline against one or more sites with:
-      - structured logging
-      - per-site error isolation
-      - retry logic
-      - optional email notification
-      - lockfile to prevent overlapping cron runs
+      - Ollama LLM analysis
+      - PDF report generation
+      - Structured logging to file
+      - Per-site error isolation
+      - Exponential retry back-off
+      - Lockfile for cron safety
+      - Email notification hook
     """
 
     def __init__(self, config: RunnerConfig):
@@ -199,74 +213,53 @@ class AutomatedRunner:
     # ------------------------------------------------------------------
 
     def run_all(self) -> list[SiteRunResult]:
-        """
-        Run the pipeline for every enabled site in config.sites.
-
-        Returns:
-            list[SiteRunResult] — one entry per site (including failed ones)
-
-        Exit codes (set on sys.exit at the end of __main__):
-            0 — all sites passed
-            1 — some sites failed
-            2 — all sites failed
-        """
+        """Run all enabled sites and return results."""
         sites = [s for s in self.config.sites if s.enabled]
 
         if not sites:
-            self.logger.warning("No enabled sites found in config. Exiting.")
+            self.logger.warning("No enabled sites found. Exiting.")
             return []
 
-        self.logger.info(f"{'═'*60}")
-        self.logger.info(f"AI Web Tester — Automated Run")
-        self.logger.info(f"Sites to test : {len(sites)}")
-        self.logger.info(f"Dry run       : {self.config.dry_run}")
-        self.logger.info(f"{'═'*60}")
+        self.logger.info("=" * 60)
+        self.logger.info("AI Web Tester — Automated Run")
+        self.logger.info(f"Sites      : {len(sites)}")
+        self.logger.info(f"LLM        : {'ollama/' + self.config.ollama_model if self.config.run_llm else 'disabled'}")
+        self.logger.info(f"PDF reports: {'yes' if self.config.run_pdf else 'no'}")
+        self.logger.info(f"Dry run    : {self.config.dry_run}")
+        self.logger.info("=" * 60)
 
         with _Lockfile(self.config.lock_file, self.logger):
-            run_started = time.perf_counter()
-            results: list[SiteRunResult] = []
+            t0      = time.perf_counter()
+            results = []
 
             for idx, site in enumerate(sites, 1):
-                self.logger.info(f"[{idx}/{len(sites)}] Starting: {site.url}")
+                self.logger.info(f"[{idx}/{len(sites)}] {site.url}")
                 result = self._run_with_retry(site)
                 results.append(result)
-                _log_site_result(result, self.logger)
+                _log_result(result, self.logger)
 
-            total_s = time.perf_counter() - run_started
-            self._log_run_summary(results, total_s)
-            self._save_run_manifest(results, total_s)
+            total_s = time.perf_counter() - t0
+            self._log_summary(results, total_s)
+            self._save_manifest(results, total_s)
 
             if self.config.notify_email:
-                self._send_email_summary(results, total_s)
+                self._send_email(results, total_s)
 
         return results
-
-    def run_single(self, site: SiteConfig) -> SiteRunResult:
-        """Run one site (used directly from tests or other scripts)."""
-        with _Lockfile(self.config.lock_file, self.logger):
-            return self._run_with_retry(site)
 
     # ------------------------------------------------------------------
     # Retry wrapper
     # ------------------------------------------------------------------
 
     def _run_with_retry(self, site: SiteConfig) -> SiteRunResult:
-        """
-        Attempt to run the pipeline for *site*, retrying up to site.retries
-        times on failure.  Each attempt is fully isolated — a crash on
-        attempt 1 will not affect attempt 2.
-        """
-        result = SiteRunResult(site=site)
+        result      = SiteRunResult(site=site)
         max_attempts = max(1, site.retries)
 
         for attempt in range(1, max_attempts + 1):
             result.attempts = attempt
             if attempt > 1:
-                wait = 2 ** attempt   # exponential back-off: 4s, 8s, …
-                self.logger.warning(
-                    f"  Retry {attempt}/{max_attempts} for {site.url} "
-                    f"(waiting {wait}s)"
-                )
+                wait = 2 ** attempt
+                self.logger.warning(f"  Retry {attempt}/{max_attempts} (wait {wait}s)")
                 time.sleep(wait)
 
             try:
@@ -274,40 +267,38 @@ class AutomatedRunner:
                 self._run_site(site, result)
                 result.duration_s = time.perf_counter() - t0
                 result.success    = True
-                return result                  # ← success, stop retrying
+                return result
 
             except Exception as exc:
                 result.error = f"{type(exc).__name__}: {exc}"
-                self.logger.error(
-                    f"  Attempt {attempt} failed for {site.url}: {exc}",
-                    exc_info=True,
-                )
+                self.logger.error(f"  Attempt {attempt} failed: {exc}", exc_info=True)
 
-        result.duration_s = time.perf_counter() - (
-            time.perf_counter()               # approximate if all failed
-        )
-        return result   # all attempts exhausted
+        return result
 
     # ------------------------------------------------------------------
-    # Core pipeline call
+    # Core pipeline execution for one site
     # ------------------------------------------------------------------
 
     def _run_site(self, site: SiteConfig, result: SiteRunResult) -> None:
         """
-        Execute the full pipeline for one site and populate *result*.
-        Any unhandled exception propagates up to _run_with_retry.
+        Full pipeline for one site:
+          Crawl → UI tests → SEO → Ollama LLM → PDF + JSON reports
         """
         from pipeline.run_pipeline import Pipeline
         from reports.generate_report import ReportBuilder
+        from reports.pdf_report import PDFReportBuilder
 
-        # Per-site output directory:  output/example_com/
-        site_slug  = _url_to_slug(site.url)
+        # Per-site output dir:  output/example_com/
+        site_slug   = _url_to_slug(site.url)
         site_outdir = os.path.join(self.config.output_dir, site_slug)
         os.makedirs(site_outdir, exist_ok=True)
 
-        self.logger.info(f"  Crawling: {site.url} (max {site.max_pages} pages)")
+        # Determine whether to run LLM and PDF for this site
+        do_llm = (site.run_llm or self.config.run_llm) and not self.config.dry_run
+        do_pdf = (site.run_pdf or self.config.run_pdf) and not self.config.dry_run
 
-        # ── Run the pipeline ──────────────────────────────────────────────
+        # ── Step 1: Crawl + UI + SEO ──────────────────────────────────────
+        self.logger.info(f"  Crawling: {site.url} (max {site.max_pages} pages)")
         pipeline = Pipeline(
             url            = site.url,
             max_pages      = site.max_pages,
@@ -316,56 +307,113 @@ class AutomatedRunner:
             screenshot_dir = os.path.join(site_outdir, "screenshots"),
             headless       = self.config.headless,
         )
-        page_results   = pipeline.run()
+        page_results       = pipeline.run()
         result.pages_found = len(page_results)
         self.logger.info(f"  Pages found: {result.pages_found}")
 
+        if not page_results:
+            raise RuntimeError(
+                f"No pages could be fetched from {site.url}. "
+                "Check the URL and network access."
+            )
+
+        page_errors = [page for page in page_results if page.error]
+        if page_errors and len(page_errors) == len(page_results):
+            sample_errors = "; ".join(
+                f"{page.url}: {page.error}"
+                for page in page_errors[:3]
+            )
+            raise RuntimeError(
+                "All analyzed pages failed. "
+                f"Sample errors: {sample_errors}"
+            )
+
         if self.config.dry_run:
-            self.logger.info("  Dry run — skipping report generation.")
+            self.logger.info("  Dry run — skipping analysis and reports.")
             return
 
-        # ── Generate reports ──────────────────────────────────────────────
+        # ── Step 2: Ollama LLM analysis (optional) ────────────────────────
+        llm_report = None
+        if do_llm:
+            self.logger.info(f"  Running Ollama LLM analysis ({self.config.ollama_model})...")
+            try:
+                from ai_analysis.analyzer import LLMAnalyzer
+                llm_report = LLMAnalyzer(
+                    model    = self.config.ollama_model,
+                    base_url = self.config.ollama_url,
+                ).analyze(page_results, site_url=site.url)
+
+                if llm_report.success:
+                    self.logger.info("  LLM analysis complete.")
+                else:
+                    self.logger.warning(f"  LLM analysis failed: {llm_report.error}")
+            except Exception as exc:
+                self.logger.error(f"  LLM analysis error: {exc}")
+
+        # ── Step 3: Reports ───────────────────────────────────────────────
         self.logger.info(f"  Generating reports → {site_outdir}")
+
+        # Always generate JSON + TXT
         builder = ReportBuilder(site_url=site.url, output_dir=site_outdir)
         builder.add_pages(page_results)
+        if llm_report:
+            builder.add_llm_report(llm_report)
         paths = builder.save()
-        result.report_paths = paths
-        self.logger.info(f"  Reports saved: {list(paths.values())}")
+        result.report_paths.update(paths)
+
+        # Generate PDF if requested
+        if do_pdf:
+            self.logger.info("  Generating PDF report...")
+            try:
+                pdf_builder = PDFReportBuilder(
+                    site_url   = site.url,
+                    output_dir = site_outdir,
+                )
+                pdf_builder.add_pages(page_results)
+                if llm_report:
+                    pdf_builder.add_llm_report(llm_report)
+                pdf_path = pdf_builder.save()
+                result.report_paths["pdf"] = pdf_path
+                self.logger.info(f"  PDF saved: {pdf_path}")
+            except Exception as exc:
+                self.logger.error(f"  PDF generation failed: {exc}")
+
+        self.logger.info(f"  Reports: {list(result.report_paths.values())}")
 
     # ------------------------------------------------------------------
     # Summary + manifest
     # ------------------------------------------------------------------
 
-    def _log_run_summary(self, results: list[SiteRunResult], total_s: float) -> None:
+    def _log_summary(self, results: list[SiteRunResult], total_s: float) -> None:
         passed = sum(1 for r in results if r.success)
         failed = len(results) - passed
-        self.logger.info(f"{'═'*60}")
-        self.logger.info(f"RUN COMPLETE — {passed} passed / {failed} failed "
-                         f"in {total_s:.1f}s")
+        self.logger.info("=" * 60)
+        self.logger.info(
+            f"RUN COMPLETE — {passed} passed / {failed} failed in {total_s:.1f}s"
+        )
         for r in results:
-            status = "✓ PASS" if r.success else "✗ FAIL"
+            status = "PASS" if r.success else "FAIL"
+            pdfs   = "  [PDF]" if "pdf" in r.report_paths else ""
             self.logger.info(
-                f"  {status}  {r.site.url}  "
-                f"({r.pages_found} pages, {r.duration_s:.1f}s, "
-                f"{r.attempts} attempt(s))"
+                f"  [{status}] {r.site.url}  "
+                f"({r.pages_found} pages, {r.duration_s:.1f}s){pdfs}"
             )
-        self.logger.info(f"{'═'*60}")
+        self.logger.info("=" * 60)
 
-    def _save_run_manifest(self, results: list[SiteRunResult], total_s: float) -> None:
-        """
-        Save a machine-readable manifest of the entire run.
-        Useful for dashboards, CI checks, and audit trails.
-        """
+    def _save_manifest(self, results: list[SiteRunResult], total_s: float) -> None:
         os.makedirs(self.config.output_dir, exist_ok=True)
         ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
         manifest = {
-            "run_at":      datetime.now().isoformat(timespec="seconds"),
-            "total_s":     round(total_s, 2),
-            "dry_run":     self.config.dry_run,
-            "sites_total": len(results),
-            "sites_passed":sum(1 for r in results if r.success),
-            "sites_failed":sum(1 for r in results if not r.success),
-            "sites":       [r.to_dict() for r in results],
+            "run_at":       datetime.now().isoformat(timespec="seconds"),
+            "total_s":      round(total_s, 2),
+            "dry_run":      self.config.dry_run,
+            "llm_enabled":  self.config.run_llm,
+            "pdf_enabled":  self.config.run_pdf,
+            "ollama_model": self.config.ollama_model,
+            "sites_total":  len(results),
+            "sites_passed": sum(1 for r in results if r.success),
+            "sites_failed": sum(1 for r in results if not r.success),
+            "sites":        [r.to_dict() for r in results],
         }
         path = os.path.join(self.config.output_dir, f"manifest_{ts}.json")
         with open(path, "w") as f:
@@ -376,65 +424,53 @@ class AutomatedRunner:
     # Email notification (optional)
     # ------------------------------------------------------------------
 
-    def _send_email_summary(
-        self, results: list[SiteRunResult], total_s: float
-    ) -> None:
-        """
-        Send a plain-text run summary to config.notify_email.
-
-        Requires these environment variables:
-            SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
-        """
+    def _send_email(self, results: list[SiteRunResult], total_s: float) -> None:
         smtp_host = os.getenv("SMTP_HOST", "")
-        smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        smtp_user = os.getenv("SMTP_USER", "")
-        smtp_pass = os.getenv("SMTP_PASS", "")
-        smtp_from = os.getenv("SMTP_FROM", smtp_user)
-
         if not smtp_host:
-            self.logger.warning("SMTP_HOST not set — skipping email notification.")
+            self.logger.warning("SMTP_HOST not set — skipping email.")
             return
 
-        passed = sum(1 for r in results if r.success)
-        failed = len(results) - passed
+        passed  = sum(1 for r in results if r.success)
+        failed  = len(results) - passed
         subject = (
-            f"[AI Web Tester] {'✓ All passed' if failed == 0 else f'⚠ {failed} site(s) failed'}"
+            f"[AI Web Tester] {'All passed' if failed == 0 else f'{failed} failed'}"
             f" — {datetime.now().strftime('%Y-%m-%d')}"
         )
-
         lines = [
-            f"AI Web Tester — Automated Run Summary",
-            f"{'─'*50}",
-            f"Date      : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Duration  : {total_s:.1f}s",
-            f"Passed    : {passed} / {len(results)}",
-            f"Failed    : {failed}",
+            "AI Web Tester — Run Summary",
+            f"Date    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Duration: {total_s:.1f}s",
+            f"Passed  : {passed}/{len(results)}",
             "",
         ]
         for r in results:
-            status = "PASS" if r.success else "FAIL"
-            lines.append(f"  [{status}] {r.site.url}")
+            lines.append(f"  [{'PASS' if r.success else 'FAIL'}] {r.site.url}")
             if r.error:
-                lines.append(f"         Error: {r.error}")
-            if r.report_paths:
-                lines.append(f"         Report: {r.report_paths.get('txt', '')}")
+                lines.append(f"        Error: {r.error}")
+            for k, v in r.report_paths.items():
+                lines.append(f"        {k.upper()}: {v}")
         body = "\n".join(lines)
 
         try:
-            msg = MIMEMultipart()
+            smtp_port = int(os.getenv("SMTP_PORT", "587"))
+            smtp_user = os.getenv("SMTP_USER", "")
+            smtp_pass = os.getenv("SMTP_PASS", "")
+            smtp_from = os.getenv("SMTP_FROM", smtp_user)
+
+            msg            = MIMEMultipart()
             msg["From"]    = smtp_from
             msg["To"]      = self.config.notify_email
             msg["Subject"] = subject
             msg.attach(MIMEText(body, "plain"))
 
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
+            with smtplib.SMTP(smtp_host, smtp_port) as s:
+                s.starttls()
+                s.login(smtp_user, smtp_pass)
+                s.send_message(msg)
 
-            self.logger.info(f"Email summary sent to {self.config.notify_email}")
+            self.logger.info(f"Email sent to {self.config.notify_email}")
         except Exception as exc:
-            self.logger.error(f"Failed to send email: {exc}")
+            self.logger.error(f"Email failed: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -442,117 +478,89 @@ class AutomatedRunner:
 # ---------------------------------------------------------------------------
 
 def load_config_from_yaml(path: str) -> RunnerConfig:
-    """
-    Load RunnerConfig from a YAML file.
-
-    Example sites.yaml:
-        output_dir: output
-        log_dir: logs
-        log_level: INFO
-        headless: true
-        notify_email: ""
-
-        sites:
-          - url: https://example.com
-            max_pages: 20
-            retries: 2
-            label: "Example Site"
-
-          - url: https://another.com
-            max_pages: 10
-            run_ui: false      # SEO only
-            enabled: true
-    """
     if not _YAML_AVAILABLE:
         raise ImportError("PyYAML not installed. Run: pip install pyyaml")
-
     with open(path) as f:
         data = yaml.safe_load(f) or {}
-
     sites = [
-        SiteConfig(**{k: v for k, v in site.items() if k in SiteConfig.__dataclass_fields__})
-        for site in data.pop("sites", [])
+        SiteConfig(**{k: v for k, v in s.items() if k in SiteConfig.__dataclass_fields__})
+        for s in data.pop("sites", [])
     ]
-    config_fields = {
-        k: v for k, v in data.items()
-        if k in RunnerConfig.__dataclass_fields__
-    }
-    return RunnerConfig(sites=sites, **config_fields)
+    cfg_fields = {k: v for k, v in data.items() if k in RunnerConfig.__dataclass_fields__}
+    return RunnerConfig(sites=sites, **cfg_fields)
 
 
 def load_config_from_json(path: str) -> RunnerConfig:
-    """Load RunnerConfig from a JSON file (same structure as YAML)."""
     with open(path) as f:
         data = json.load(f)
-
     sites = [
-        SiteConfig(**{k: v for k, v in site.items() if k in SiteConfig.__dataclass_fields__})
-        for site in data.pop("sites", [])
+        SiteConfig(**{k: v for k, v in s.items() if k in SiteConfig.__dataclass_fields__})
+        for s in data.pop("sites", [])
     ]
-    config_fields = {
-        k: v for k, v in data.items()
-        if k in RunnerConfig.__dataclass_fields__
-    }
-    return RunnerConfig(sites=sites, **config_fields)
+    cfg_fields = {k: v for k, v in data.items() if k in RunnerConfig.__dataclass_fields__}
+    return RunnerConfig(sites=sites, **cfg_fields)
 
 
-def config_from_urls(
-    urls: list[str],
-    max_pages: int  = 10,
-    run_ui:    bool = True,
-    run_seo:   bool = True,
-    retries:   int  = 2,
-) -> RunnerConfig:
-    """Build a RunnerConfig directly from a list of URL strings."""
+def config_from_urls(urls: list[str], **kwargs) -> RunnerConfig:
     return RunnerConfig(
-        sites=[
-            SiteConfig(url=u, max_pages=max_pages, run_ui=run_ui,
-                       run_seo=run_seo, retries=retries)
-            for u in urls
-        ]
+        sites=[SiteConfig(url=u, **{k: v for k, v in kwargs.items()
+                                    if k in SiteConfig.__dataclass_fields__})
+               for u in urls],
+        **{k: v for k, v in kwargs.items() if k in RunnerConfig.__dataclass_fields__},
     )
 
 
 # ---------------------------------------------------------------------------
-# Lockfile — prevents two cron jobs running at the same time
+# Lockfile — prevents overlapping cron runs
 # ---------------------------------------------------------------------------
 
 class _Lockfile:
-    """
-    Context manager that acquires an exclusive lock on a file.
-    If the lock is already held (another run in progress), raises
-    RuntimeError immediately instead of waiting — safe for cron.
-    """
-
     def __init__(self, path: str, logger: logging.Logger):
         self.path   = path
         self.logger = logger
         self._fh    = None
 
     def __enter__(self):
-        self._fh = open(self.path, "w")
+        lock_path = Path(self.path)
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = open(lock_path, "a+")
         try:
-            fcntl.flock(self._fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if fcntl is not None:
+                fcntl.flock(self._fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            elif msvcrt is not None:
+                self._fh.seek(0)
+                self._fh.write(" ")
+                self._fh.flush()
+                self._fh.seek(0)
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                raise RuntimeError("No supported file locking primitive is available.")
+
+            self._fh.seek(0)
+            self._fh.truncate()
             self._fh.write(str(os.getpid()))
             self._fh.flush()
-            self.logger.debug(f"Lock acquired: {self.path}")
         except OSError:
             self._fh.close()
             raise RuntimeError(
-                f"Another run is already in progress (lock: {self.path}). "
-                "Exiting to avoid duplicate runs."
+                f"Another run already in progress (lock: {self.path}). Skipping."
             )
         return self
 
     def __exit__(self, *_):
         if self._fh:
-            fcntl.flock(self._fh, fcntl.LOCK_UN)
-            self._fh.close()
+            try:
+                if fcntl is not None:
+                    fcntl.flock(self._fh, fcntl.LOCK_UN)
+                elif msvcrt is not None:
+                    self._fh.seek(0)
+                    msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+            finally:
+                self._fh.close()
             try:
                 os.unlink(self.path)
             except OSError:
                 pass
-            self.logger.debug(f"Lock released: {self.path}")
 
 
 # ---------------------------------------------------------------------------
@@ -560,23 +568,22 @@ class _Lockfile:
 # ---------------------------------------------------------------------------
 
 def _url_to_slug(url: str) -> str:
-    """Turn a URL into a safe directory name: https://example.com → example_com"""
     import re
     from urllib.parse import urlparse
-    host = urlparse(url).netloc
-    return re.sub(r"[^a-zA-Z0-9]+", "_", host).strip("_")[:50]
+    return re.sub(r"[^a-zA-Z0-9]+", "_", urlparse(url).netloc).strip("_")[:50]
 
 
-def _log_site_result(result: SiteRunResult, logger: logging.Logger) -> None:
+def _log_result(result: SiteRunResult, logger: logging.Logger) -> None:
     if result.success:
+        pdfs = "  PDF generated" if "pdf" in result.report_paths else ""
         logger.info(
-            f"  ✓ {result.site.url} — {result.pages_found} pages "
-            f"in {result.duration_s:.1f}s"
+            f"  PASS  {result.site.url}  "
+            f"({result.pages_found} pages, {result.duration_s:.1f}s){pdfs}"
         )
     else:
         logger.error(
-            f"  ✗ {result.site.url} — FAILED after {result.attempts} attempt(s): "
-            f"{result.error}"
+            f"  FAIL  {result.site.url}  "
+            f"after {result.attempts} attempt(s): {result.error}"
         )
 
 
@@ -586,83 +593,120 @@ def _log_site_result(result: SiteRunResult, logger: logging.Logger) -> None:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="AI Web Tester — Automated multi-site runner",
+        description="AI Web Tester — Automated runner with Ollama LLM + PDF reports",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Single site
+  # Single site, basic
   python pipeline/automated_runner.py --url https://example.com
 
+  # Single site with LLM analysis and PDF report
+  python pipeline/automated_runner.py --url https://example.com --llm --pdf
+
   # Multiple sites
-  python pipeline/automated_runner.py --urls https://a.com https://b.com
+  python pipeline/automated_runner.py --urls https://a.com https://b.com --llm --pdf
 
   # YAML config (recommended for cron)
   python pipeline/automated_runner.py --config pipeline/sites.yaml
 
-  # Dry run (crawl only, no UI/SEO/reports)
+  # Dry run (crawl only)
   python pipeline/automated_runner.py --config pipeline/sites.yaml --dry-run
 
-  # JSON config + custom output dir
-  python pipeline/automated_runner.py --config pipeline/sites.json --output /var/reports
+Cron examples (crontab -e):
+  # Daily at 2 AM
+  0 2 * * * cd /path/to/ai_web_tester && python pipeline/automated_runner.py --config pipeline/sites.yaml --llm --pdf >> logs/cron.log 2>&1
+
+  # Every 6 hours, SEO only
+  0 */6 * * * cd /path/to/ai_web_tester && python pipeline/automated_runner.py --config pipeline/sites.yaml --no-ui >> logs/cron.log 2>&1
+
+  # Weekly deep audit every Monday
+  0 6 * * 1 cd /path/to/ai_web_tester && python pipeline/automated_runner.py --config pipeline/sites.yaml --llm --pdf --notify you@email.com >> logs/cron.log 2>&1
         """,
     )
     group = p.add_mutually_exclusive_group(required=True)
-    group.add_argument("--url",    help="Single site URL")
-    group.add_argument("--urls",   nargs="+", help="Multiple site URLs")
-    group.add_argument("--config", help="Path to YAML or JSON config file")
+    group.add_argument("--url",    help="Single URL")
+    group.add_argument("--urls",   nargs="+", help="Multiple URLs")
+    group.add_argument("--config", help="YAML or JSON config file")
 
-    p.add_argument("--max-pages",  type=int, default=10)
-    p.add_argument("--output",     default="output")
-    p.add_argument("--log-dir",    default="logs")
-    p.add_argument("--log-level",  default="INFO",
+    p.add_argument("--max-pages",    type=int,  default=10)
+    p.add_argument("--output",       default="output")
+    p.add_argument("--log-dir",      default="logs")
+    p.add_argument("--log-level",    default="INFO",
                    choices=["DEBUG","INFO","WARNING","ERROR"])
-    p.add_argument("--dry-run",    action="store_true")
-    p.add_argument("--no-ui",      action="store_true")
-    p.add_argument("--no-seo",     action="store_true")
-    p.add_argument("--retries",    type=int, default=2)
-    p.add_argument("--no-headless",action="store_true")
-    p.add_argument("--notify",     default="", metavar="EMAIL",
-                   help="Email address for run summary")
+    p.add_argument("--dry-run",      action="store_true")
+    p.add_argument("--no-ui",        action="store_true")
+    p.add_argument("--no-seo",       action="store_true")
+    p.add_argument("--llm",          action="store_true", help="Enable Ollama LLM analysis")
+    p.add_argument("--pdf",          action="store_true", help="Generate PDF report")
+    p.add_argument("--ollama-model", default="llama3",    help="Ollama model name")
+    p.add_argument("--ollama-url",   default="http://localhost:11434")
+    p.add_argument("--retries",      type=int, default=2)
+    p.add_argument("--no-headless",  action="store_true")
+    p.add_argument("--notify",       default="", metavar="EMAIL")
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
 
-    # ── Build config ──────────────────────────────────────────────────────
     if args.config:
         ext = Path(args.config).suffix.lower()
-        cfg = load_config_from_yaml(args.config) if ext in (".yml",".yaml") \
-              else load_config_from_json(args.config)
-        # CLI flags override config file values when explicitly passed
-        if args.output   != "output": cfg.output_dir   = args.output
-        if args.log_dir  != "logs":   cfg.log_dir       = args.log_dir
-        if args.dry_run:              cfg.dry_run        = True
-        if args.notify:               cfg.notify_email   = args.notify
+        cfg = (load_config_from_yaml(args.config)
+               if ext in (".yml", ".yaml")
+               else load_config_from_json(args.config))
+        if args.output != "output":
+            cfg.output_dir = args.output
+        if args.log_dir != "logs":
+            cfg.log_dir = args.log_dir
+        if args.log_level != "INFO":
+            cfg.log_level = args.log_level
+        if args.dry_run:
+            cfg.dry_run = True
+        if args.llm:
+            cfg.run_llm = True
+        if args.pdf:
+            cfg.run_pdf = True
+        if args.no_headless:
+            cfg.headless = False
+        if args.notify:
+            cfg.notify_email = args.notify
+        cfg.ollama_model = args.ollama_model
+        cfg.ollama_url   = args.ollama_url
+
+        for site in cfg.sites:
+            if args.max_pages != 10:
+                site.max_pages = args.max_pages
+            if args.no_ui:
+                site.run_ui = False
+            if args.no_seo:
+                site.run_seo = False
+            if args.retries != 2:
+                site.retries = args.retries
     else:
         urls = [args.url] if args.url else args.urls
         cfg  = config_from_urls(
             urls,
-            max_pages = args.max_pages,
-            run_ui    = not args.no_ui,
-            run_seo   = not args.no_seo,
-            retries   = args.retries,
+            max_pages  = args.max_pages,
+            run_ui     = not args.no_ui,
+            run_seo    = not args.no_seo,
+            run_llm    = args.llm,
+            run_pdf    = args.pdf,
+            retries    = args.retries,
         )
-        cfg.output_dir    = args.output
-        cfg.log_dir       = args.log_dir
-        cfg.log_level     = args.log_level
-        cfg.dry_run       = args.dry_run
-        cfg.headless      = not args.no_headless
-        cfg.notify_email  = args.notify
+        cfg.output_dir   = args.output
+        cfg.log_dir      = args.log_dir
+        cfg.log_level    = args.log_level
+        cfg.dry_run      = args.dry_run
+        cfg.headless     = not args.no_headless
+        cfg.notify_email = args.notify
+        cfg.run_llm      = args.llm
+        cfg.run_pdf      = args.pdf
+        cfg.ollama_model = args.ollama_model
+        cfg.ollama_url   = args.ollama_url
 
-    # ── Run ───────────────────────────────────────────────────────────────
     runner  = AutomatedRunner(cfg)
     results = runner.run_all()
 
-    # ── Exit code for CI/CD and cron monitoring ───────────────────────────
     passed = sum(1 for r in results if r.success)
     failed = len(results) - passed
-
-    if   failed == 0:             sys.exit(0)   # all passed
-    elif failed < len(results):   sys.exit(1)   # partial failure
-    else:                         sys.exit(2)   # total failure
+    sys.exit(0 if failed == 0 else (1 if failed < len(results) else 2))

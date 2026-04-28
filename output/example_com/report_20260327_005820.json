@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "site_url": "https://example.com",
+    "generated_at": "2026-03-27T00:58:20",
+    "total_pages": 1,
+    "tool": "AI Web Tester"
+  },
+  "summary": {
+    "total_pages": 1,
+    "pages_ui_tested": 0,
+    "pages_ok": 0,
+    "pages_failed": 0,
+    "pages_with_errors": 0,
+    "total_console_errors": 0,
+    "total_js_exceptions": 0,
+    "avg_load_time_ms": 0,
+    "avg_seo_score": 0,
+    "min_seo_score": 0,
+    "max_seo_score": 0,
+    "total_seo_errors": 0,
+    "total_seo_warnings": 0
+  },
+  "seo_summary": {
+    "pages_analyzed": 0,
+    "pages_missing_title": 0,
+    "pages_missing_meta_desc": 0,
+    "pages_missing_h1": 0,
+    "pages_missing_canonical": 0,
+    "total_images": 0,
+    "images_missing_alt": 0,
+    "pages_thin_content": 0,
+    "avg_word_count": 0
+  },
+  "pages": [
+    {
+      "url": "https://example.com/",
+      "ui": null,
+      "seo": null,
+      "error": "UI test failed: [WinError 5] Access is denied | SEO analysis failed: [WinError 5] Access is denied"
+    }
+  ],
+  "llm_report": {}
+}

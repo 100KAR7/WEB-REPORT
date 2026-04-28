@@ -1,0 +1,51 @@
+{
+  "target_url": "http://127.0.0.1:50332",
+  "generated_at": "2026-03-27 01:29:14",
+  "performance": [
+    {
+      "url": "http://127.0.0.1:50332",
+      "load_time_ms": 5.92,
+      "is_slow": false,
+      "score": "Excellent"
+    },
+    {
+      "url": "http://127.0.0.1:50332/about",
+      "load_time_ms": 3.33,
+      "is_slow": false,
+      "score": "Excellent"
+    },
+    {
+      "url": "http://127.0.0.1:50332/",
+      "load_time_ms": 0.0,
+      "is_slow": false,
+      "score": "Excellent"
+    }
+  ],
+  "broken_links": [],
+  "seo": [
+    {
+      "url": "http://127.0.0.1:50332",
+      "issues": [
+        {
+          "severity": "warning",
+          "message": "Title too short (9 chars)"
+        }
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:50332/",
+      "issues": [
+        {
+          "severity": "warning",
+          "message": "Title too short (9 chars)"
+        }
+      ]
+    }
+  ],
+  "ai_insights": [
+    {
+      "url": "Site-wide analysis (3 page(s))",
+      "insight": "**Site-Wide Analysis**\n\n**Clarity:** The purpose of the pages is not immediately clear, as the title and content are vague and do not provide a clear direction or value proposition.\n\n**UX Issues:**\n\n* Confusing language and lack of context make it difficult for users to understand the site's purpose.\n* Missing calls-to-action (CTAs) leave users unsure of what actions to take next.\n* Internal linking is present, but there is no apparent hierarchy or organization.\n\n**Actionable Improvements:**\n\n1. **Define a clear value proposition**: Revise the title and content to clearly communicate the site's purpose and benefits"
+    }
+  ]
+}

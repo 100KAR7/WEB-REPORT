@@ -1,1 +1,1 @@
-from .seo_checker import SEOChecker
+from .seo_checker import SEOChecker as SEOChecker

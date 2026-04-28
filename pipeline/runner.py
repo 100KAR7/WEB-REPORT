@@ -28,7 +28,13 @@ class PipelineRunner:
         """
         Execute the pipeline and return the path to the generated report.
         """
-        logger.info(f"🚀 Starting AI Web Tester for: {self.url}")
+        return self.run_with_details()["report_path"]
+
+    def run_with_details(self) -> dict:
+        """
+        Execute the pipeline and return full run details for API consumers.
+        """
+        logger.info(f"Starting AI Web Tester for: {self.url}")
 
         # ── Step 1: Crawl ──────────────────────────────────────────────
         logger.info("Step 1/5 — Crawling pages...")
@@ -57,10 +63,57 @@ class PipelineRunner:
         # ── Step 5: AI Analysis ────────────────────────────────────────
         logger.info("Step 5/5 — Running AI analysis...")
         ai_insights = []
-        if settings.run_ai_analysis and settings.anthropic_api_key:
-            ai_insights = AIAnalyzer().analyze(pages)
-        elif settings.run_ai_analysis:
-            logger.warning("ANTHROPIC_API_KEY not set — skipping AI analysis.")
+        ai_status = {
+            "enabled": settings.run_ai_analysis,
+            "attempted": False,
+            "status": "skipped",
+            "provider": "",
+            "model": "",
+            "endpoint": "",
+            "pages_considered": len(pages),
+            "pages_eligible": 0,
+            "insights_count": 0,
+            "message": "AI analysis disabled by configuration.",
+        }
+        if settings.run_ai_analysis:
+            try:
+                analyzer = AIAnalyzer()
+                ai_status.update(analyzer.backend_details())
+                ai_status["attempted"] = True
+
+                eligible_pages = analyzer.eligible_pages(pages)
+                ai_status["pages_eligible"] = len(eligible_pages)
+
+                if not eligible_pages:
+                    ai_status["status"] = "no_content"
+                    ai_status["message"] = (
+                        "No crawled pages had a successful response and extractable text "
+                        "for AI analysis."
+                    )
+                else:
+                    ai_insights = analyzer.analyze(pages)
+                    ai_status.update(analyzer.backend_details())
+                    ai_status["insights_count"] = len(ai_insights)
+                    if ai_insights:
+                        ai_status["status"] = "completed"
+                        ai_status["message"] = (
+                            f"Generated {len(ai_insights)} AI insight(s) "
+                            f"from {len(eligible_pages)} eligible page(s)."
+                        )
+                    else:
+                        ai_status["status"] = "no_content"
+                        ai_status["message"] = (
+                            "The AI backend ran, but it did not return any insight text."
+                        )
+            except Exception as exc:
+                logger.warning(f"AI analysis unavailable - {exc}")
+                ai_status["attempted"] = True
+                ai_status["status"] = "failed"
+                ai_status["message"] = str(exc)
+                ai_insights = [{
+                    "url": "AI backend status",
+                    "insight": f"Analysis unavailable: {exc}",
+                }]
 
         # ── Report ─────────────────────────────────────────────────────
         logger.info("Generating report...")
@@ -84,7 +137,17 @@ class PipelineRunner:
             page_health=report_context["page_health"],
             sitewide_findings=report_context["sitewide_findings"],
             recommendations=report_context["recommendations"],
+            ai_status=ai_status,
         )
 
-        logger.info(f"✅ Done! Report saved to: {report_path}")
-        return report_path
+        logger.info(f"Done. Report saved to: {report_path}")
+        return {
+            "report_path": report_path,
+            "target_url": self.url,
+            "performance": performance,
+            "broken_links": broken_links,
+            "seo": seo,
+            "ai_insights": ai_insights,
+            "ai_status": ai_status,
+            "pages_crawled": len(pages),
+        }
