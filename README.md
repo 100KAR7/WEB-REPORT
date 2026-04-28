@@ -3,7 +3,7 @@ AI Web Tester
 THE LLM WAY TO ANALYZE YOUR WEBSITE AND GIVE YOU REPORT
 -->
 <p align="center">
-  <img src="assets/logo.png" alt="AI Web Tester Logo" width="120"/>
+  <img src="assets/logo.png" alt="AI Web Tester Logo" width="520"/>
 </p>
 
 <h1 align="center">AI Web Tester</h1>
